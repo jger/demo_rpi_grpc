@@ -1,0 +1,25 @@
+# Rust build artifacts
+/target
+Cargo.lock.bak
+**/*.rs.bk
+
+# OS & Editor files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Obsidian Vault files:
+# Ignore local workspace state & cache (prevents noisy git diffs when opening tabs)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache/
+.obsidian/graph.json

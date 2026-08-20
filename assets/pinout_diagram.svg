@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 360" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0f172a; rx: 12px; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 17px; font-weight: bold; fill: #38bdf8; }
+      .sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; fill: #94a3b8; }
+      .box { fill: #1e293b; stroke: #334155; stroke-width: 1.5; rx: 6px; }
+      .pin-vcc { fill: #ef4444; }
+      .pin-gnd { fill: #3b82f6; }
+      .pin-gpio { fill: #10b981; }
+      .pin-active1 { fill: #ec4899; }
+      .pin-active2 { fill: #06b6d4; }
+      .pin-nc { fill: #475569; }
+      .lbl { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; fill: #e2e8f0; }
+      .lbl-num { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; fill: #94a3b8; font-weight: bold; }
+      .tag-box { fill: #0f172a; stroke: #38bdf8; stroke-width: 1; rx: 4px; }
+    </style>
+  </defs>
+
+  <rect width="850" height="360" class="bg" />
+
+  <text x="30" y="35" class="title">Raspberry Pi 3 — 40-Pin GPIO Header Mapping</text>
+  <text x="30" y="55" class="sub">Highlighted active connections: Pin 1 (3.3V), Pin 14 (GND), Pin 16 (GPIO 23 / SW1), Pin 18 (GPIO 24 / SW2)</text>
+
+  <!-- Header Outer Box -->
+  <rect x="180" y="80" width="490" height="250" class="box" />
+
+  <!-- Left Column (Odd Pins: 1 to 39) -->
+  <!-- Pin 1: 3.3V (ACTIVE) -->
+  <rect x="200" y="95" width="220" height="24" fill="#7f1d1d" rx="4" stroke="#ef4444" stroke-width="1.5" />
+  <circle cx="215" cy="107" r="6" class="pin-vcc" />
+  <text x="230" y="111" class="lbl" font-weight="bold" fill="#fca5a5">[Pin  1] 3.3V Power (VCC)</text>
+  <text x="140" y="111" class="lbl" fill="#ef4444" font-weight="bold">➔ 3.3V Rail</text>
+
+  <!-- Pin 3: GPIO 2 -->
+  <rect x="200" y="125" width="220" height="24" class="box" />
+  <circle cx="215" cy="137" r="5" class="pin-nc" />
+  <text x="230" y="141" class="lbl">[Pin  3] GPIO 2 (SDA)</text>
+
+  <!-- Pin 5: GPIO 3 -->
+  <rect x="200" y="155" width="220" height="24" class="box" />
+  <circle cx="215" cy="167" r="5" class="pin-nc" />
+  <text x="230" y="171" class="lbl">[Pin  5] GPIO 3 (SCL)</text>
+
+  <!-- Pin 7: GPIO 4 -->
+  <rect x="200" y="185" width="220" height="24" class="box" />
+  <circle cx="215" cy="197" r="5" class="pin-nc" />
+  <text x="230" y="201" class="lbl">[Pin  7] GPIO 4</text>
+
+  <!-- Pin 9: GND -->
+  <rect x="200" y="215" width="220" height="24" class="box" />
+  <circle cx="215" cy="227" r="5" class="pin-gnd" />
+  <text x="230" y="231" class="lbl">[Pin  9] Ground</text>
+
+  <!-- Pin 11: GPIO 17 -->
+  <rect x="200" y="245" width="220" height="24" class="box" />
+  <circle cx="215" cy="257" r="5" class="pin-nc" />
+  <text x="230" y="261" class="lbl">[Pin 11] GPIO 17</text>
+
+  <!-- Pin 13: GPIO 27 -->
+  <rect x="200" y="275" width="220" height="24" class="box" />
+  <circle cx="215" cy="287" r="5" class="pin-nc" />
+  <text x="230" y="291" class="lbl">[Pin 13] GPIO 27</text>
+
+  <!-- Pin 15: GPIO 22 -->
+  <rect x="200" y="305" width="220" height="24" class="box" />
+  <circle cx="215" cy="317" r="5" class="pin-nc" />
+  <text x="230" y="321" class="lbl">[Pin 15] GPIO 22</text>
+
+  <!-- Right Column (Even Pins: 2 to 40) -->
+  <!-- Pin 2: 5V -->
+  <rect x="430" y="95" width="220" height="24" class="box" />
+  <circle cx="635" cy="107" r="5" fill="#e11d48" />
+  <text x="445" y="111" class="lbl">[Pin  2] 5V Power</text>
+
+  <!-- Pin 4: 5V -->
+  <rect x="430" y="125" width="220" height="24" class="box" />
+  <circle cx="635" cy="137" r="5" fill="#e11d48" />
+  <text x="445" y="141" class="lbl">[Pin  4] 5V Power</text>
+
+  <!-- Pin 6: GND -->
+  <rect x="430" y="155" width="220" height="24" class="box" />
+  <circle cx="635" cy="167" r="5" class="pin-gnd" />
+  <text x="445" y="171" class="lbl">[Pin  6] Ground</text>
+
+  <!-- Pin 8: GPIO 14 (TX) -->
+  <rect x="430" y="185" width="220" height="24" class="box" />
+  <circle cx="635" cy="197" r="5" class="pin-nc" />
+  <text x="445" y="201" class="lbl">[Pin  8] GPIO 14 (UART TX)</text>
+
+  <!-- Pin 10: GPIO 15 (RX) -->
+  <rect x="430" y="215" width="220" height="24" class="box" />
+  <circle cx="635" cy="227" r="5" class="pin-nc" />
+  <text x="445" y="231" class="lbl">[Pin 10] GPIO 15 (UART RX)</text>
+
+  <!-- Pin 14: GND (ACTIVE) -->
+  <rect x="430" y="245" width="220" height="24" fill="#1e3a8a" rx="4" stroke="#3b82f6" stroke-width="1.5" />
+  <circle cx="635" cy="257" r="6" class="pin-gnd" />
+  <text x="445" y="261" class="lbl" font-weight="bold" fill="#93c5fd">[Pin 14] Ground (GND)</text>
+  <text x="660" y="261" class="lbl" fill="#3b82f6" font-weight="bold">➔ GND Rail</text>
+
+  <!-- Pin 16: GPIO 23 (ACTIVE SW1) -->
+  <rect x="430" y="275" width="220" height="24" fill="#831843" rx="4" stroke="#ec4899" stroke-width="1.5" />
+  <circle cx="635" cy="287" r="6" class="pin-active1" />
+  <text x="445" y="291" class="lbl" font-weight="bold" fill="#fbcfe8">[Pin 16] GPIO 23 (SW 1 IN)</text>
+  <text x="660" y="291" class="lbl" fill="#ec4899" font-weight="bold">➔ Switch 1</text>
+
+  <!-- Pin 18: GPIO 24 (ACTIVE SW2) -->
+  <rect x="430" y="305" width="220" height="24" fill="#164e63" rx="4" stroke="#06b6d4" stroke-width="1.5" />
+  <circle cx="635" cy="317" r="6" class="pin-active2" />
+  <text x="445" y="321" class="lbl" font-weight="bold" fill="#a5f3fc">[Pin 18] GPIO 24 (SW 2 IN)</text>
+  <text x="660" y="321" class="lbl" fill="#06b6d4" font-weight="bold">➔ Switch 2</text>
+</svg>

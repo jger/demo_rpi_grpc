@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 420" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0f172a; rx: 12px; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 18px; font-weight: bold; fill: #38bdf8; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; fill: #94a3b8; }
+      .box { fill: #1e293b; stroke: #334155; stroke-width: 2; rx: 8px; }
+      .pi-box { fill: #1e293b; stroke: #c084fc; stroke-width: 2; rx: 8px; }
+      .label { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; fill: #f8fafc; }
+      .label-dim { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; fill: #64748b; }
+      .wire-vcc { stroke: #ef4444; stroke-width: 3; fill: none; stroke-linecap: round; }
+      .wire-gnd { stroke: #3b82f6; stroke-width: 3; fill: none; stroke-linecap: round; }
+      .wire-sig1 { stroke: #ec4899; stroke-width: 3; fill: none; stroke-linecap: round; }
+      .wire-sig2 { stroke: #06b6d4; stroke-width: 3; fill: none; stroke-linecap: round; }
+      .component { fill: #334155; stroke: #64748b; stroke-width: 1.5; }
+      .resistor { fill: #f59e0b; stroke: #d97706; stroke-width: 1.5; rx: 3px; }
+      .switch-btn { fill: #10b981; stroke: #059669; stroke-width: 2; rx: 4px; }
+      .node-dot { fill: #f8fafc; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="850" height="420" class="bg" />
+
+  <!-- Header -->
+  <text x="30" y="40" class="title">Raspberry Pi 3 — 2-Switch Active-LOW Circuit Schematic</text>
+  <text x="30" y="60" class="subtitle">External 10kΩ Pull-Up Resistors (or internal BCM Pull-Ups) with Momentary Push Switches</text>
+
+  <!-- Raspberry Pi Block -->
+  <rect x="30" y="90" width="220" height="300" class="pi-box" />
+  <text x="50" y="125" class="label" font-weight="bold" fill="#c084fc">Raspberry Pi 3</text>
+  <text x="50" y="145" class="label-dim">40-Pin GPIO Header</text>
+
+  <!-- Pi Pins -->
+  <!-- Pin 1: 3.3V -->
+  <circle cx="210" cy="175" r="5" fill="#ef4444" />
+  <text x="60" y="180" class="label">Pin 1 (3.3V VCC)</text>
+
+  <!-- Pin 16: GPIO 23 -->
+  <circle cx="210" cy="235" r="5" fill="#ec4899" />
+  <text x="60" y="240" class="label">Pin 16 (GPIO 23)</text>
+
+  <!-- Pin 18: GPIO 24 -->
+  <circle cx="210" cy="300" r="5" fill="#06b6d4" />
+  <text x="60" y="305" class="label">Pin 18 (GPIO 24)</text>
+
+  <!-- Pin 14: GND -->
+  <circle cx="210" cy="360" r="5" fill="#3b82f6" />
+  <text x="60" y="365" class="label">Pin 14 (GND)</text>
+
+  <!-- ================= VCC BUS ================= -->
+  <path d="M 210 175 L 360 175 L 360 140 L 680 140" class="wire-vcc" />
+  <text x="370" y="130" class="label" fill="#ef4444" font-size="11px">+3.3V Power Rail</text>
+
+  <!-- ================= SWITCH 1 CIRCUIT ================= -->
+  <!-- Pullup Resistor 1 -->
+  <path d="M 440 140 L 440 175" class="wire-vcc" />
+  <rect x="425" y="175" width="30" height="40" class="resistor" />
+  <text x="465" y="198" class="label" fill="#f59e0b">R1: 10kΩ</text>
+  <path d="M 440 215 L 440 235" class="wire-sig1" />
+
+  <!-- Wire from Pi GPIO 23 to Junction -->
+  <path d="M 210 235 L 440 235" class="wire-sig1" />
+  <circle cx="440" cy="235" r="4" class="node-dot" />
+  <text x="240" y="225" class="label-dim" fill="#ec4899">SW1 Signal (Active LOW)</text>
+
+  <!-- Switch 1 -->
+  <path d="M 440 235 L 510 235" class="wire-sig1" />
+  <!-- Switch 1 Graphic -->
+  <rect x="510" y="215" width="70" height="40" class="box" />
+  <rect x="530" y="223" width="30" height="24" class="switch-btn" />
+  <text x="522" y="275" class="label">SW1 (Push)</text>
+  <path d="M 580 235 L 680 235 L 680 360" class="wire-gnd" />
+
+  <!-- ================= SWITCH 2 CIRCUIT ================= -->
+  <!-- Pullup Resistor 2 -->
+  <path d="M 640 140 L 640 240" class="wire-vcc" />
+  <rect x="625" y="240" width="30" height="40" class="resistor" />
+  <text x="665" y="263" class="label" fill="#f59e0b">R2: 10kΩ</text>
+  <path d="M 640 280 L 640 300" class="wire-sig2" />
+
+  <!-- Wire from Pi GPIO 24 to Junction -->
+  <path d="M 210 300 L 640 300" class="wire-sig2" />
+  <circle cx="640" cy="300" r="4" class="node-dot" />
+  <text x="240" y="290" class="label-dim" fill="#06b6d4">SW2 Signal (Active LOW)</text>
+
+  <!-- Switch 2 -->
+  <path d="M 640 300 L 710 300" class="wire-sig2" />
+  <!-- Switch 2 Graphic -->
+  <rect x="710" y="280" width="70" height="40" class="box" />
+  <rect x="730" y="288" width="30" height="24" class="switch-btn" />
+  <text x="722" y="340" class="label">SW2 (Push)</text>
+  <path d="M 780 300 L 800 300 L 800 360 L 680 360" class="wire-gnd" />
+
+  <!-- ================= GND BUS ================= -->
+  <path d="M 210 360 L 800 360" class="wire-gnd" />
+  <text x="240" y="380" class="label" fill="#3b82f6" font-size="11px">Common Ground (GND)</text>
+</svg>
