@@ -93,3 +93,24 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now pi-node.service
 sudo journalctl -u pi-node.service -f
 ```
+
+---
+
+## 5. Automated CI/CD & Semantic Release
+
+This repository uses **Semantic Release** and **GitHub Actions** (`.github/workflows/release.yml`) to automatically version, changelog, and cross-compile binary releases on push to `main`.
+
+### Conventional Commits Format:
+- `feat: ...` ➔ Triggers a **Minor** version bump (e.g. `v0.1.0` ➔ `v0.2.0`).
+- `fix: ...` or `perf: ...` ➔ Triggers a **Patch** version bump (e.g. `v0.1.0` ➔ `v0.1.1`).
+- `feat!: ...` or `BREAKING CHANGE:` ➔ Triggers a **Major** version bump (e.g. `v0.1.0` ➔ `v1.0.0`).
+- `docs:`, `chore:`, `ci:`, `test:` ➔ Does not trigger a release.
+
+### Generated Multi-Platform Release Assets:
+Every release publishes tar archives and SHA-256 checksums to GitHub Releases for:
+- **Raspberry Pi 3 (ARMv7 32-bit)**: `minimum-hw-rpi-armv7-linux-vX.Y.Z.tar.gz`
+- **Raspberry Pi (AArch64 64-bit)**: `minimum-hw-rpi-aarch64-linux-vX.Y.Z.tar.gz`
+- **macOS Apple Silicon (M1/M2/M3/M4)**: `minimum-hw-macos-aarch64-apple-silicon-vX.Y.Z.tar.gz`
+- **macOS Intel (x86_64)**: `minimum-hw-macos-x86_64-intel-vX.Y.Z.tar.gz`
+- **Linux (x86_64)**: `minimum-hw-x86_64-linux-vX.Y.Z.tar.gz`
+
