@@ -91,7 +91,7 @@ async fn test_grpc_stream_events() {
     assert_eq!(ev1.sequence_number, 1);
     assert_eq!(ev1.switch_id, SwitchId::Switch1 as i32);
     assert_eq!(ev1.state, SwitchState::Pressed as i32);
-    assert_eq!(ev1.raw_gpio_pin, PIN_SWITCH_1);
+    assert_eq!(ev1.raw_gpio_pin, PIN_SWITCH_1 as u32);
     assert_eq!(ev1.duration_pressed_millis, 0);
 
     let ev2 = stream.message().await.unwrap().expect("ev2");
@@ -104,7 +104,7 @@ async fn test_grpc_stream_events() {
     assert_eq!(ev3.sequence_number, 3);
     assert_eq!(ev3.switch_id, SwitchId::Switch2 as i32);
     assert_eq!(ev3.state, SwitchState::Pressed as i32);
-    assert_eq!(ev3.raw_gpio_pin, PIN_SWITCH_2);
+    assert_eq!(ev3.raw_gpio_pin, PIN_SWITCH_2 as u32);
 
     let ev4 = stream.message().await.unwrap().expect("ev4");
     assert_eq!(ev4.sequence_number, 4);

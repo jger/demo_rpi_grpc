@@ -14,8 +14,8 @@ use crate::proto::{
     SwitchEvent, SwitchId, SwitchState,
 };
 
-pub const PIN_SWITCH_1: u32 = 23;
-pub const PIN_SWITCH_2: u32 = 24;
+pub const PIN_SWITCH_1: u8 = 23;
+pub const PIN_SWITCH_2: u8 = 24;
 #[allow(dead_code)]
 pub const DEBOUNCE_MS: u64 = 20;
 
@@ -85,7 +85,7 @@ impl SharedState {
         &self,
         switch_id: SwitchId,
         state: SwitchState,
-        raw_pin: u32,
+        raw_pin: u8,
         duration_pressed_millis: u32,
     ) -> SwitchEvent {
         let seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
@@ -94,7 +94,7 @@ impl SharedState {
             timestamp_unix_millis: now_millis(),
             switch_id: switch_id.into(),
             state: state.into(),
-            raw_gpio_pin: raw_pin,
+            raw_gpio_pin: raw_pin as u32,
             duration_pressed_millis,
         };
 

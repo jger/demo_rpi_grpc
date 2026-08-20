@@ -50,8 +50,8 @@ async fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::er
         }
     };
 
-    pin23.set_interrupt(Trigger::Both)?;
-    pin24.set_interrupt(Trigger::Both)?;
+    pin23.set_interrupt(Trigger::Both, Some(Duration::from_millis(DEBOUNCE_MS)))?;
+    pin24.set_interrupt(Trigger::Both, Some(Duration::from_millis(DEBOUNCE_MS)))?;
 
     state.log(
         LogLevel::Info,
@@ -69,13 +69,14 @@ async fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::er
         let mut last_transition = Instant::now();
 
         loop {
-            if let Ok(Some(level)) = pin23.poll_interrupt(true, Some(Duration::from_millis(500))) {
+            if let Ok(Some(_event)) = pin23.poll_interrupt(true, Some(Duration::from_millis(500))) {
                 let now = Instant::now();
                 if now.duration_since(last_transition) < Duration::from_millis(DEBOUNCE_MS) {
                     continue;
                 }
                 last_transition = now;
 
+                let level = pin23.read();
                 match level {
                     Level::Low => {
                         last_press_time = Some(now);
@@ -107,13 +108,14 @@ async fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::er
         let mut last_transition = Instant::now();
 
         loop {
-            if let Ok(Some(level)) = pin24.poll_interrupt(true, Some(Duration::from_millis(500))) {
+            if let Ok(Some(_event)) = pin24.poll_interrupt(true, Some(Duration::from_millis(500))) {
                 let now = Instant::now();
                 if now.duration_since(last_transition) < Duration::from_millis(DEBOUNCE_MS) {
                     continue;
                 }
                 last_transition = now;
 
+                let level = pin24.read();
                 match level {
                     Level::Low => {
                         last_press_time = Some(now);
