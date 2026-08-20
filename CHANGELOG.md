@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/jger/demo_rpi_grpc/compare/v1.0.0...v1.0.1) (2026-08-20)
+
+### Bug Fixes
+
+* bundle platform-prefixed binaries and generate individual checksums in release workflow ([c094711](https://github.com/jger/demo_rpi_grpc/commit/c09471191ec6c4e5dd3c330fe69175cca120f3c4))
+
 ## 1.0.0 (2026-08-20)
 
 ### Features
