@@ -169,6 +169,27 @@ minimum-hw-project/
 
 You do **not** need a physical Raspberry Pi connected to test and run the project! When compiled on macOS or non-Linux systems, `pi_node` automatically switches into interactive simulation mode.
 
+### 🛠️ Using the Makefile:
+Run `make help` to inspect all available commands:
+
+```bash
+make help
+```
+
+| Task | Make Command | Equivalent Cargo Command |
+| :--- | :--- | :--- |
+| **Run Node (Local)** | `make run-node` | `cargo run --bin pi_node` |
+| **Run Client** | `make run-receiver` | `cargo run --bin log_receiver` |
+| **Build Release** | `make build-release` | `cargo build --release` |
+| **Cross-Compile (RPi 32-bit)** | `make cross-rpi32` | `cross build --target armv7-unknown-linux-gnueabihf --release` |
+| **Cross-Compile (RPi 64-bit)** | `make cross-rpi64` | `cross build --target aarch64-unknown-linux-gnu --release` |
+| **Deploy to Pi** | `make deploy-rpi RPI_HOST=pi@192.168.1.50` | `scp target/.../pi_node pi@192.168.1.50:~/` |
+| **Test & Lint** | `make test` / `make clippy` | `cargo test` / `cargo clippy` |
+
+---
+
+### Step-by-Step Manual Run:
+
 ### 1. Start the Server (`pi_node`)
 ```bash
 cargo run --bin pi_node
