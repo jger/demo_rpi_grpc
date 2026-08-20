@@ -147,21 +147,34 @@ jobs:
           RELEASE_TAG="${{ steps.tag.outputs.tag }}"
           ARCHIVE_NAME="minimum-hw-${{ matrix.platform_name }}-${RELEASE_TAG}"
           ARCHIVE_DIR="dist/${ARCHIVE_NAME}"
-
-          mkdir -p "${ARCHIVE_DIR}"
-
           BIN_PATH="target/${{ matrix.target }}/release"
 
+          mkdir -p "${ARCHIVE_DIR}"
+          mkdir -p dist/assets
+
+          # Copy binaries to archive folder
           cp "${BIN_PATH}/pi_node" "${ARCHIVE_DIR}/"
           cp "${BIN_PATH}/log_receiver" "${ARCHIVE_DIR}/"
           cp README.md "${ARCHIVE_DIR}/" || true
 
-          cd dist
-          tar -czvf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
-          shasum -a 256 "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
+          # Create .tar.gz bundle
+          (cd dist && tar -czvf "assets/${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}")
 
-          echo "archive_path=dist/${ARCHIVE_NAME}.tar.gz" >> $GITHUB_OUTPUT
-          echo "checksum_path=dist/${ARCHIVE_NAME}.tar.gz.sha256" >> $GITHUB_OUTPUT
+          # Copy standalone direct executable binaries
+          cp "${BIN_PATH}/pi_node" "dist/assets/pi_node-${{ matrix.platform_name }}"
+          cp "${BIN_PATH}/log_receiver" "dist/assets/log_receiver-${{ matrix.platform_name }}"
+
+          # Generate SHA-256 checksums for all release assets
+          cd dist/assets
+          for file in *; do
+            if [ -f "$file" ]; then
+              if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum "$file" > "${file}.sha256"
+              else
+                shasum -a 256 "$file" > "${file}.sha256"
+              fi
+            fi
+          done
 
       - name: Upload Assets to GitHub Release
         env:
@@ -169,6 +182,5 @@ jobs:
         run: |
           RELEASE_TAG="${{ steps.tag.outputs.tag }}"
           gh release upload "${RELEASE_TAG}" \
-            dist/*.tar.gz \
-            dist/*.tar.gz.sha256 \
+            dist/assets/* \
             --clobber
