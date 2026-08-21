@@ -11,38 +11,127 @@ use minimum_hw_project::proto::{LogLevel, SwitchId, SwitchState};
 use minimum_hw_project::server::{PIN_SWITCH_1, PIN_SWITCH_2};
 use minimum_hw_project::{SharedState, TelemetryServiceImpl};
 
-/// The switches this node owns, in reporting order.
-const SWITCHES: [(SwitchId, u8); 2] = [
-    (SwitchId::Switch1, PIN_SWITCH_1),
-    (SwitchId::Switch2, PIN_SWITCH_2),
-];
+// -----------------------------------------------------------------------------
+// Constants & Configuration
+// -----------------------------------------------------------------------------
 
+/// The local IP address and port where the gRPC server listens for incoming client connections.
+/// "0.0.0.0" means it accepts connections from any network interface on port 50051.
 const LISTEN_ADDR: &str = "0.0.0.0:50051";
 
 // -----------------------------------------------------------------------------
-// Linux / Raspberry Pi 3 Hardware GPIO Implementation
+// Application Entry Point
 // -----------------------------------------------------------------------------
 
-/// Switches are wired active LOW against a pull-up: a closed contact reads Low.
-#[cfg(target_os = "linux")]
-fn read_state(pin: &rppal::gpio::InputPin) -> SwitchState {
-    if pin.read() == rppal::gpio::Level::Low {
-        SwitchState::Pressed
-    } else {
-        SwitchState::Released
-    }
+/// The entry point of the Raspberry Pi hardware node application.
+///
+/// - `#[tokio::main]`: Automatically sets up the Tokio asynchronous multithreaded runtime.
+/// - `async fn main()`: Allows asynchronous operations like `.await` inside main.
+/// - `-> Result<(), Box<dyn std::error::Error>>`: Returns `Ok(())` on clean exit or propagates any error.
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!(
+        "{}",
+        "==================================================".cyan()
+    );
+    println!(
+        "{}",
+        "  Raspberry Pi 3 — gRPC Hardware Node Service"
+            .bright_cyan()
+            .bold()
+    );
+    println!(
+        "{}",
+        format!(
+            "  Pins: SW1 -> GPIO {} (Pull-up) | SW2 -> GPIO {} (Pull-up)",
+            PIN_SWITCH_1, PIN_SWITCH_2
+        )
+        .dimmed()
+    );
+    println!(
+        "{}",
+        "==================================================".cyan()
+    );
+
+    // Step 1: Create shared application state wrapped in an Arc (thread-safe reference counter)
+    // to allow safe concurrent access across all background tasks and gRPC handlers.
+    let state = Arc::new(SharedState::new());
+
+    // Step 2: Initialize hardware GPIO pins and spawn hardware monitoring tasks
+    spawn_gpio_tasks(state.clone())?;
+
+    // Step 3: Spawn the 10-second periodic heartbeat logger
+    spawn_heartbeat_logger(state.clone());
+
+    // Step 4: Parse server listening address (0.0.0.0:50051)
+    let addr: SocketAddr = LISTEN_ADDR.parse()?;
+    state.log(
+        LogLevel::Info,
+        "grpc",
+        format!("Starting gRPC server listening on {}", addr),
+    );
+
+    // Step 5: Build and start the Tonic gRPC server to serve telemetry to connecting clients
+    Server::builder()
+        .add_service(TelemetryServiceServer::new(TelemetryServiceImpl::new(
+            state.clone(),
+        )))
+        .serve(addr)
+        .await?;
+
+    Ok(())
 }
 
-#[cfg(target_os = "linux")]
-fn event_to_state(event: rppal::gpio::Event, pin: &rppal::gpio::InputPin) -> SwitchState {
-    match event.trigger {
-        rppal::gpio::Trigger::FallingEdge => SwitchState::Pressed,
-        rppal::gpio::Trigger::RisingEdge => SwitchState::Released,
-        _ => read_state(pin),
-    }
+// -----------------------------------------------------------------------------
+// Raspberry Pi 3 Hardware GPIO Implementation
+// -----------------------------------------------------------------------------
+
+/// Initializes hardware GPIO pins and spawns background worker threads for SW1 and SW2.
+fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::error::Error>> {
+    state.log(
+        LogLevel::Info,
+        "gpio",
+        "Initializing rppal hardware GPIO on RPi 3...",
+    );
+
+    let gpio = rppal::gpio::Gpio::new()?;
+    let pin1 = configure_input_pin(&gpio, PIN_SWITCH_1, &state)?;
+    let pin2 = configure_input_pin(&gpio, PIN_SWITCH_2, &state)?;
+
+    state.log(
+        LogLevel::Info,
+        "gpio",
+        format!(
+            "GPIO ready: SW1 -> GPIO {}, SW2 -> GPIO {}",
+            PIN_SWITCH_1, PIN_SWITCH_2
+        ),
+    );
+
+    // Spawn a dedicated background OS thread to monitor Switch 1 (SW1 / GPIO 23).
+
+    // - `state.clone()` creates a new thread-safe reference (Arc) to the shared state.
+    let state1 = state.clone();
+
+    // - `tokio::task::spawn_blocking` offloads the blocking interrupt loop to Tokio's
+    //   blocking thread pool so it never freezes the main async event loop.
+    // - `move ||` transfers ownership of `pin1` and `state1` into the thread closure.
+    tokio::task::spawn_blocking(move || {
+        monitor_hardware_switch(pin1, SwitchId::Switch1, PIN_SWITCH_1, state1);
+    });
+
+    // Spawn a dedicated background OS thread to monitor Switch 2 (SW2 / GPIO 24)
+    let state2 = state.clone();
+    tokio::task::spawn_blocking(move || {
+        monitor_hardware_switch(pin2, SwitchId::Switch2, PIN_SWITCH_2, state2);
+    });
+
+    // Return `Ok(())` containing the unit type `()` to signal that all GPIO initialization
+    // and thread spawning completed successfully without errors.
+    Ok(())
 }
 
-#[cfg(target_os = "linux")]
+/// Configures a single Raspberry Pi GPIO pin as an input with an internal pull-up resistor enabled.
+/// If configuration fails (e.g. invalid permissions or busy pin), an error is logged.
 fn configure_input_pin(
     gpio: &rppal::gpio::Gpio,
     pin_number: u8,
@@ -59,7 +148,14 @@ fn configure_input_pin(
         })
 }
 
-#[cfg(target_os = "linux")]
+/// Dedicated monitoring loop running on a separate OS thread for each switch.
+///
+/// How it works:
+/// 1. Configures hardware interrupts to detect both voltage transitions (High->Low and Low->High).
+/// 2. Blocks efficiently using `poll_interrupt`, consuming virtually 0% CPU while waiting for button presses.
+/// 3. Whenever state changes:
+///    - On Press: Records timestamp and publishes a Pressed event.
+///    - On Release: Calculates how many milliseconds the button was held down, and publishes a Released event.
 fn monitor_hardware_switch(
     mut pin: rppal::gpio::InputPin,
     switch_id: SwitchId,
@@ -68,6 +164,9 @@ fn monitor_hardware_switch(
 ) {
     use std::time::Instant;
 
+    // Enable hardware edge triggers for both press (falling edge) and release (rising edge)
+    let _ = pin.set_interrupt(rppal::gpio::Trigger::Both, None);
+
     let mut last_state = read_state(&pin);
     let mut press_start: Option<Instant> = if last_state == SwitchState::Pressed {
         Some(Instant::now())
@@ -75,42 +174,12 @@ fn monitor_hardware_switch(
         None
     };
 
-    // Trigger on both rising and falling edges (Active-LOW: falling=pressed, rising=released)
-    let interrupt_supported = match pin.set_interrupt(rppal::gpio::Trigger::Both, None) {
-        Ok(_) => true,
-        Err(e) => {
-            state.log(
-                LogLevel::Warn,
-                "gpio",
-                format!(
-                    "Warning: Failed to set interrupt on GPIO {}: {}. Using fallback polling.",
-                    pin_number, e
-                ),
-            );
-            false
-        }
-    };
-
     loop {
-        let current_state = if interrupt_supported {
-            match pin.poll_interrupt(true, Some(Duration::from_millis(250))) {
-                Ok(Some(event)) => event_to_state(event, &pin),
-                Ok(None) => read_state(&pin),
-                Err(e) => {
-                    state.log(
-                        LogLevel::Warn,
-                        "gpio",
-                        format!("Interrupt poll error on GPIO {}: {}", pin_number, e),
-                    );
-                    std::thread::sleep(Duration::from_millis(50));
-                    read_state(&pin)
-                }
-            }
-        } else {
-            std::thread::sleep(Duration::from_millis(20));
-            read_state(&pin)
-        };
+        // Sleep efficiently until the hardware detects a voltage change, or timeout after 250ms
+        let _ = pin.poll_interrupt(true, Some(Duration::from_millis(250)));
+        let current_state = read_state(&pin);
 
+        // If the electrical state hasn't changed, continue waiting
         if current_state == last_state {
             continue;
         }
@@ -119,6 +188,7 @@ fn monitor_hardware_switch(
 
         match current_state {
             SwitchState::Pressed => {
+                // User pressed the button: start the timer and record the event
                 press_start = Some(Instant::now());
                 state.record_event(switch_id, SwitchState::Pressed, pin_number, 0);
                 state.log(
@@ -131,11 +201,17 @@ fn monitor_hardware_switch(
                 );
             }
             SwitchState::Released => {
+                // User released the button: compute duration held in milliseconds
                 let duration_millis = press_start
                     .take()
                     .map(|start| start.elapsed().as_millis() as u32)
                     .unwrap_or(0);
-                state.record_event(switch_id, SwitchState::Released, pin_number, duration_millis);
+                state.record_event(
+                    switch_id,
+                    SwitchState::Released,
+                    pin_number,
+                    duration_millis,
+                );
                 state.log(
                     LogLevel::Debug,
                     "gpio",
@@ -150,103 +226,20 @@ fn monitor_hardware_switch(
     }
 }
 
-#[cfg(target_os = "linux")]
-fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::error::Error>> {
-    state.log(LogLevel::Info, "gpio", "Initializing rppal hardware GPIO on RPi 3...");
-
-    let gpio = match rppal::gpio::Gpio::new() {
-        Ok(gpio) => gpio,
-        Err(e) => {
-            state.log(
-                LogLevel::Error,
-                "gpio",
-                format!("Failed to access GPIO: {}. Falling back to simulation mode.", e),
-            );
-            spawn_simulated_gpio(state);
-            return Ok(());
-        }
-    };
-
-    let pins = SWITCHES
-        .iter()
-        .map(|&(switch_id, pin_number)| {
-            configure_input_pin(&gpio, pin_number, &state).map(|pin| (switch_id, pin_number, pin))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    state.log(
-        LogLevel::Info,
-        "gpio",
-        format!(
-            "Hardware GPIO ready: SW1 -> GPIO {} (Pull-Up), SW2 -> GPIO {} (Pull-Up) | Direct HW Filtered (Capacitors)",
-            PIN_SWITCH_1, PIN_SWITCH_2
-        ),
-    );
-
-    for (switch_id, pin_number, pin) in pins {
-        let state = state.clone();
-        tokio::task::spawn_blocking(move || {
-            monitor_hardware_switch(pin, switch_id, pin_number, state);
-        });
-    }
-
-    Ok(())
-}
-
-// -----------------------------------------------------------------------------
-// Non-Linux / Simulation Mock for local testing on macOS / Windows
-// -----------------------------------------------------------------------------
-#[cfg(not(target_os = "linux"))]
-fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::error::Error>> {
-    spawn_simulated_gpio(state);
-    Ok(())
-}
-
-fn spawn_simulated_gpio(state: Arc<SharedState>) {
-    state.log(
-        LogLevel::Info,
-        "sim",
-        "Running in SIMULATION mode. (Simulating independent periodic switch pulses for SW1 and SW2)",
-    );
-
-    for &(switch_id, pin) in &SWITCHES {
-        let state = state.clone();
-        tokio::spawn(async move {
-            let (initial_delay, interval, hold_duration) = match switch_id {
-                SwitchId::Switch1 => (Duration::from_millis(800), Duration::from_millis(3200), 280),
-                SwitchId::Switch2 => (Duration::from_millis(2200), Duration::from_millis(4600), 360),
-                _ => (Duration::from_secs(1), Duration::from_secs(4), 300),
-            };
-
-            tokio::time::sleep(initial_delay).await;
-
-            loop {
-                state.log(
-                    LogLevel::Debug,
-                    "sim",
-                    format!("{:?} (GPIO {}) contact closed [Pressed]", switch_id, pin),
-                );
-                state.record_event(switch_id, SwitchState::Pressed, pin, 0);
-
-                tokio::time::sleep(Duration::from_millis(hold_duration)).await;
-
-                state.record_event(switch_id, SwitchState::Released, pin, hold_duration as u32);
-                state.log(
-                    LogLevel::Debug,
-                    "sim",
-                    format!(
-                        "{:?} (GPIO {}) contact opened [Released] (held for {}ms)",
-                        switch_id, pin, hold_duration
-                    ),
-                );
-
-                tokio::time::sleep(interval).await;
-            }
-        });
+/// Reads the electrical voltage level on a GPIO pin and translates it into a `SwitchState`.
+///
+/// Hardware Wiring Explanation (Active-LOW with Internal Pull-Up):
+/// - When the switch is open (unpressed), the internal pull-up resistor keeps the pin at High (+3.3V) -> `Released`.
+/// - When the button is pressed, the contact closes to Ground (0V), pulling the pin Low -> `Pressed`.
+fn read_state(pin: &rppal::gpio::InputPin) -> SwitchState {
+    if pin.read() == rppal::gpio::Level::Low {
+        SwitchState::Pressed
+    } else {
+        SwitchState::Released
     }
 }
 
-// Periodic system health diagnostic logger
+/// Periodically logs system diagnostics (uptime and total switch press counts) every 10 seconds.
 fn spawn_heartbeat_logger(state: Arc<SharedState>) {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(10));
@@ -264,40 +257,4 @@ fn spawn_heartbeat_logger(state: Arc<SharedState>) {
             );
         }
     });
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "==================================================".cyan());
-    println!("{}", "  Raspberry Pi 3 — gRPC Hardware Node Service".bright_cyan().bold());
-    println!(
-        "{}",
-        format!(
-            "  Pins: SW1 -> GPIO {} (Pull-up) | SW2 -> GPIO {} (Pull-up)",
-            PIN_SWITCH_1, PIN_SWITCH_2
-        )
-        .dimmed()
-    );
-    println!("{}", "==================================================".cyan());
-
-    let state = Arc::new(SharedState::new());
-
-    spawn_gpio_tasks(state.clone())?;
-    spawn_heartbeat_logger(state.clone());
-
-    let addr: SocketAddr = LISTEN_ADDR.parse()?;
-    state.log(
-        LogLevel::Info,
-        "grpc",
-        format!("Starting gRPC server listening on {}", addr),
-    );
-
-    Server::builder()
-        .add_service(TelemetryServiceServer::new(TelemetryServiceImpl::new(
-            state.clone(),
-        )))
-        .serve(addr)
-        .await?;
-
-    Ok(())
 }
