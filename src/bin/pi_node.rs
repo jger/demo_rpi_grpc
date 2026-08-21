@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use colored::Colorize;
 use tonic::transport::Server;
@@ -86,17 +86,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Raspberry Pi 3 Hardware GPIO Implementation
 // -----------------------------------------------------------------------------
 
-/// Initializes hardware GPIO pins and spawns background worker threads for SW1 and SW2.
+/// Initializes the hardware GPIO lines and starts the switch monitoring thread.
 fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::error::Error>> {
     state.log(
         LogLevel::Info,
         "gpio",
-        "Initializing rppal hardware GPIO on RPi 3...",
+        "Claiming GPIO lines via rppal on RPi 3...",
     );
 
-    let gpio = rppal::gpio::Gpio::new()?;
-    let pin1 = configure_input_pin(&gpio, PIN_SWITCH_1, &state)?;
-    let pin2 = configure_input_pin(&gpio, PIN_SWITCH_2, &state)?;
+    let gpio = rppal::gpio::Gpio::new().inspect_err(|e| report_gpio_error(&state, e))?;
+    let mut pin1 = configure_input_pin(&gpio, PIN_SWITCH_1, &state)?;
+    let mut pin2 = configure_input_pin(&gpio, PIN_SWITCH_2, &state)?;
+
+    // The idle level shows immediately whether the pull-ups are doing their job:
+    // an unpressed Active-LOW switch must read High.
+    report_idle_level(&state, SwitchId::Switch1, &pin1);
+    report_idle_level(&state, SwitchId::Switch2, &pin2);
+
+    // Arm both lines for press (falling) and release (rising) edges.
+    //
+    // No kernel debounce attribute is requested: the board already debounces in
+    // hardware with its 10 kΩ / 100 nF RC network, and a debounce attribute the kernel
+    // rejects is one more way for the line request to fail. Bounce that still slips
+    // through is filtered by `SwitchTracker` below.
+    pin1.set_interrupt(rppal::gpio::Trigger::Both, None)
+        .inspect_err(|e| report_gpio_error(&state, e))?;
+    pin2.set_interrupt(rppal::gpio::Trigger::Both, None)
+        .inspect_err(|e| report_gpio_error(&state, e))?;
 
     state.log(
         LogLevel::Info,
@@ -107,23 +123,14 @@ fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::error::E
         ),
     );
 
-    // Spawn a dedicated background OS thread to monitor Switch 1 (SW1 / GPIO 23).
-
-    // - `state.clone()` creates a new thread-safe reference (Arc) to the shared state.
-    let state1 = state.clone();
-
-    // - `tokio::task::spawn_blocking` offloads the blocking interrupt loop to Tokio's
-    //   blocking thread pool so it never freezes the main async event loop.
-    // - `move ||` transfers ownership of `pin1` and `state1` into the thread closure.
-    tokio::task::spawn_blocking(move || {
-        monitor_hardware_switch(pin1, SwitchId::Switch1, PIN_SWITCH_1, state1);
-    });
-
-    // Spawn a dedicated background OS thread to monitor Switch 2 (SW2 / GPIO 24)
-    let state2 = state.clone();
-    tokio::task::spawn_blocking(move || {
-        monitor_hardware_switch(pin2, SwitchId::Switch2, PIN_SWITCH_2, state2);
-    });
+    // A single dedicated OS thread watches both lines.
+    //
+    // - `std::thread::spawn` keeps this permanently blocking loop off Tokio's blocking
+    //   pool, so it can never stall the runtime's shutdown.
+    // - `move ||` transfers ownership of the pins, the Gpio handle and the shared state
+    //   into the thread. The pins must stay alive: dropping an `InputPin` releases the
+    //   line and the switch goes silent.
+    std::thread::spawn(move || monitor_switches(gpio, pin1, pin2, state));
 
     // Return `Ok(())` containing the unit type `()` to signal that all GPIO initialization
     // and thread spawning completed successfully without errors.
@@ -144,99 +151,184 @@ fn configure_input_pin(
                 LogLevel::Error,
                 "gpio",
                 format!("Failed to configure GPIO {}: {}", pin_number, e),
-            )
+            );
+            report_gpio_error(state, e);
         })
 }
 
-/// Dedicated monitoring loop running on a separate OS thread for each switch.
+/// Monitoring loop for BOTH switches, running on one dedicated OS thread.
 ///
 /// How it works:
-/// 1. Configures hardware interrupts to detect both voltage transitions (High->Low and Low->High).
-/// 2. Blocks efficiently using `poll_interrupt`, consuming virtually 0% CPU while waiting for button presses.
-/// 3. Whenever state changes:
-///    - On Press: Records timestamp and publishes a Pressed event.
-///    - On Release: Calculates how many milliseconds the button was held down, and publishes a Released event.
-fn monitor_hardware_switch(
-    mut pin: rppal::gpio::InputPin,
-    switch_id: SwitchId,
-    pin_number: u8,
+/// 1. `poll_interrupts` blocks efficiently on both lines at once, consuming virtually 0%
+///    CPU while waiting for either button.
+/// 2. Whenever an edge arrives, the owning switch's `SwitchTracker` debounces it and
+///    turns it into a Pressed/Released event with a hold duration.
+///
+/// Why one thread and not one per pin: rppal funnels every synchronous poll through a
+/// single global lock and a single shared epoll instance. Polling each pin from its own
+/// thread makes the two switches block each other, and a poll that resets the event
+/// cache discards the edges the other pin has queued up — so each switch only reacts
+/// when the other one hands over the lock. `poll_interrupts` is the supported way to
+/// wait on several pins, and `reset: false` returns cached events instead of dropping
+/// them, so two near-simultaneous presses are both delivered.
+fn monitor_switches(
+    gpio: rppal::gpio::Gpio,
+    pin1: rppal::gpio::InputPin,
+    pin2: rppal::gpio::InputPin,
     state: Arc<SharedState>,
 ) {
-    use std::time::Instant;
-
-    // Enable hardware edge triggers for both press (falling edge) and release (rising edge)
-    let _ = pin.set_interrupt(rppal::gpio::Trigger::Both, None);
-
-    let mut last_state = read_state(&pin);
-    let mut press_start: Option<Instant> = if last_state == SwitchState::Pressed {
-        Some(Instant::now())
-    } else {
-        None
-    };
+    let pins = [&pin1, &pin2];
+    let mut switch_1 = SwitchTracker::new(SwitchId::Switch1, PIN_SWITCH_1);
+    let mut switch_2 = SwitchTracker::new(SwitchId::Switch2, PIN_SWITCH_2);
 
     loop {
-        // Sleep efficiently until the hardware detects a voltage change, or timeout after 250ms
-        let _ = pin.poll_interrupt(true, Some(Duration::from_millis(250)));
-        let current_state = read_state(&pin);
-
-        // If the electrical state hasn't changed, continue waiting
-        if current_state == last_state {
-            continue;
-        }
-
-        last_state = current_state;
-
-        match current_state {
-            SwitchState::Pressed => {
-                // User pressed the button: start the timer and record the event
-                press_start = Some(Instant::now());
-                state.record_event(switch_id, SwitchState::Pressed, pin_number, 0);
-                state.log(
-                    LogLevel::Debug,
-                    "gpio",
-                    format!(
-                        "{:?} (GPIO {}) contact closed [Active LOW Pressed]",
-                        switch_id, pin_number
-                    ),
-                );
+        match gpio.poll_interrupts(&pins, false, None) {
+            Ok(Some((pin, event))) => {
+                let tracker = if pin.pin() == PIN_SWITCH_1 {
+                    &mut switch_1
+                } else {
+                    &mut switch_2
+                };
+                tracker.handle(event, &state);
             }
-            SwitchState::Released => {
-                // User released the button: compute duration held in milliseconds
-                let duration_millis = press_start
-                    .take()
-                    .map(|start| start.elapsed().as_millis() as u32)
-                    .unwrap_or(0);
-                state.record_event(
-                    switch_id,
-                    SwitchState::Released,
-                    pin_number,
-                    duration_millis,
-                );
+            // Unreachable with an indefinite timeout, but harmless to loop on.
+            Ok(None) => {}
+            Err(e) => {
                 state.log(
-                    LogLevel::Debug,
+                    LogLevel::Error,
                     "gpio",
-                    format!(
-                        "{:?} (GPIO {}) contact opened [Released] (held for {}ms)",
-                        switch_id, pin_number, duration_millis
-                    ),
+                    format!("GPIO polling stopped: {}", e),
                 );
+                return;
             }
-            SwitchState::Unspecified => {}
         }
     }
 }
 
-/// Reads the electrical voltage level on a GPIO pin and translates it into a `SwitchState`.
-///
-/// Hardware Wiring Explanation (Active-LOW with Internal Pull-Up):
-/// - When the switch is open (unpressed), the internal pull-up resistor keeps the pin at High (+3.3V) -> `Released`.
-/// - When the button is pressed, the contact closes to Ground (0V), pulling the pin Low -> `Pressed`.
-fn read_state(pin: &rppal::gpio::InputPin) -> SwitchState {
-    if pin.read() == rppal::gpio::Level::Low {
-        SwitchState::Pressed
-    } else {
-        SwitchState::Released
+/// Software debounce window applied on top of the board's RC filter.
+const DEBOUNCE: Duration = Duration::from_millis(20);
+
+/// Per-switch edge bookkeeping: debounce guard, press/release state and hold timing.
+struct SwitchTracker {
+    switch_id: SwitchId,
+    pin_number: u8,
+    pressed: bool,
+    press_start: Option<Instant>,
+    last_edge: Option<Instant>,
+}
+
+impl SwitchTracker {
+    fn new(switch_id: SwitchId, pin_number: u8) -> Self {
+        Self {
+            switch_id,
+            pin_number,
+            pressed: false,
+            press_start: None,
+            last_edge: None,
+        }
     }
+
+    /// Turns one edge into a telemetry event.
+    ///
+    /// Hardware Wiring Explanation (Active-LOW with Pull-Up):
+    /// - When the switch is open (unpressed), the pull-up keeps the line at High (+3.3V).
+    /// - When the button is pressed, the contact closes to Ground (0V), pulling it Low.
+    ///
+    /// So a falling edge is a press and a rising edge is a release.
+    fn handle(&mut self, event: rppal::gpio::Event, state: &SharedState) {
+        let now = Instant::now();
+
+        // Reject contact chatter, and any repeat of an edge already acted on.
+        if self.last_edge.is_some_and(|last| now - last < DEBOUNCE) {
+            return;
+        }
+        let pressed = match event.trigger {
+            rppal::gpio::Trigger::FallingEdge => true,
+            rppal::gpio::Trigger::RisingEdge => false,
+            _ => return,
+        };
+        if pressed == self.pressed {
+            return;
+        }
+
+        self.last_edge = Some(now);
+        self.pressed = pressed;
+
+        if pressed {
+            // User pressed the button: start the timer and record the event
+            self.press_start = Some(now);
+            state.record_event(self.switch_id, SwitchState::Pressed, self.pin_number, 0);
+            state.log(
+                LogLevel::Debug,
+                "gpio",
+                format!(
+                    "{:?} (GPIO {}) contact closed [Active LOW Pressed]",
+                    self.switch_id, self.pin_number
+                ),
+            );
+        } else {
+            // User released the button: compute duration held in milliseconds
+            let duration_millis = self
+                .press_start
+                .take()
+                .map_or(0, |start| (now - start).as_millis() as u32);
+            state.record_event(
+                self.switch_id,
+                SwitchState::Released,
+                self.pin_number,
+                duration_millis,
+            );
+            state.log(
+                LogLevel::Debug,
+                "gpio",
+                format!(
+                    "{:?} (GPIO {}) contact opened [Released] (held for {}ms)",
+                    self.switch_id, self.pin_number, duration_millis
+                ),
+            );
+        }
+    }
+}
+
+/// Logs the resting voltage level of a line, so a wiring fault is obvious at startup.
+fn report_idle_level(state: &SharedState, switch_id: SwitchId, pin: &rppal::gpio::InputPin) {
+    if pin.read() == rppal::gpio::Level::High {
+        state.log(
+            LogLevel::Info,
+            "gpio",
+            format!(
+                "{:?} (GPIO {}) idle High - pull-up OK",
+                switch_id,
+                pin.pin()
+            ),
+        );
+    } else {
+        state.log(
+            LogLevel::Warn,
+            "gpio",
+            format!(
+                "{:?} (GPIO {}) idle LOW - button held down, or the pull-up to 3.3 V is missing",
+                switch_id,
+                pin.pin()
+            ),
+        );
+    }
+}
+
+/// Explains the most common reasons a GPIO line cannot be claimed.
+fn report_gpio_error(state: &SharedState, error: &rppal::gpio::Error) {
+    state.log(
+        LogLevel::Error,
+        "gpio",
+        format!("Cannot claim Raspberry Pi GPIO: {}", error),
+    );
+    state.log(
+        LogLevel::Error,
+        "gpio",
+        "Is check_buttons (or another GPIO program) already running and holding GPIO 23/24? \
+         A line can only be claimed by one process. Otherwise check that /dev/gpiochip0 is \
+         accessible (run as root, or add the user to the 'gpio' group).",
+    );
 }
 
 /// Periodically logs system diagnostics (uptime and total switch press counts) every 10 seconds.
