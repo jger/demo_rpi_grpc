@@ -4,7 +4,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: help build build-release build-node build-receiver run-node run-receiver \
-        check test fmt clippy clean check-buttons \
+        check test fmt clippy clean check-buttons check-buttons-py \
         build-macos build-macos-arm64 build-macos-x86 build-macos-universal \
         build-rpi build-rpi32 build-rpi64 cross-rpi32 cross-rpi64 deploy-rpi deploy-rpi64
 
@@ -57,7 +57,10 @@ run-node: ## Run pi_node hardware service (on Raspberry Pi / Linux)
 run-receiver: ## Run log_receiver client (connects to SERVER_URL)
 	cargo run --bin log_receiver -- --server-url $(SERVER_URL)
 
-check-buttons: ## Run the standalone Python button & timing checker
+check-buttons: ## Run the standalone Rust button & timing checker
+	cargo run --bin check_buttons
+
+check-buttons-py: ## Run the standalone Python button & timing checker
 	python3 check_buttons.py
 
 ## -----------------------------------------------------------------------------
@@ -87,10 +90,10 @@ build-macos-universal: build-macos-arm64 build-macos-x86 ## Create macOS Univers
 build-rpi: build-rpi32 ## Alias for build-rpi32 (RPi 3 standard 32-bit build)
 
 build-rpi32: ## Build release binaries for Raspberry Pi OS 32-bit (ARMv7 / RPi 3, static musl)
-	cross build --target armv7-unknown-linux-musleabihf --release --bin pi_node --bin log_receiver
+	cross build --target armv7-unknown-linux-musleabihf --release --bin pi_node --bin log_receiver --bin check_buttons
 
 build-rpi64: ## Build release binaries for Raspberry Pi OS 64-bit (AArch64 / RPi 3, 4, 5, static musl)
-	cross build --target aarch64-unknown-linux-musl --release --bin pi_node --bin log_receiver
+	cross build --target aarch64-unknown-linux-musl --release --bin pi_node --bin log_receiver --bin check_buttons
 
 cross-rpi32: build-rpi32 ## (Alias) Cross-compile for RPi 32-bit
 
@@ -98,12 +101,12 @@ cross-rpi64: build-rpi64 ## (Alias) Cross-compile for RPi 64-bit
 
 deploy-rpi: build-rpi32 ## Build 32-bit binary and SCP to Raspberry Pi
 	@echo "$(CYAN)Deploying pi_node to $(RPI_HOST):$(RPI_DIR)...$(RESET)"
-	scp target/armv7-unknown-linux-musleabihf/release/pi_node $(RPI_HOST):$(RPI_DIR)/
+	scp target/armv7-unknown-linux-musleabihf/release/pi_node target/armv7-unknown-linux-musleabihf/release/check_buttons $(RPI_HOST):$(RPI_DIR)/
 	@echo "$(GREEN)Deployment complete!$(RESET)"
 
 deploy-rpi64: build-rpi64 ## Build 64-bit binary and SCP to Raspberry Pi
 	@echo "$(CYAN)Deploying 64-bit pi_node to $(RPI_HOST):$(RPI_DIR)...$(RESET)"
-	scp target/aarch64-unknown-linux-musl/release/pi_node $(RPI_HOST):$(RPI_DIR)/
+	scp target/aarch64-unknown-linux-musl/release/pi_node target/aarch64-unknown-linux-musl/release/check_buttons $(RPI_HOST):$(RPI_DIR)/
 	@echo "$(GREEN)Deployment complete!$(RESET)"
 
 ## -----------------------------------------------------------------------------

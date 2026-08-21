@@ -30,3 +30,7 @@ path = "src/bin/pi_node.rs"
 [[bin]]
 name = "log_receiver"
 path = "src/bin/log_receiver.rs"
+
+[[bin]]
+name = "check_buttons"
+path = "src/bin/check_buttons.rs"
