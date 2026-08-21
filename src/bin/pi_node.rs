@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,134 +12,157 @@ use minimum_hw_project::server::{PIN_SWITCH_1, PIN_SWITCH_2};
 use minimum_hw_project::{SharedState, TelemetryServiceImpl};
 
 #[cfg(target_os = "linux")]
-use minimum_hw_project::server::DEBOUNCE_MS;
+use minimum_hw_project::debouncer::{
+    verify_sample_stability, DebounceConfig, DebounceFilter, DebounceOutput,
+};
+
+/// The switches this node owns, in reporting order.
+const SWITCHES: [(SwitchId, u8); 2] = [
+    (SwitchId::Switch1, PIN_SWITCH_1),
+    (SwitchId::Switch2, PIN_SWITCH_2),
+];
+
+const LISTEN_ADDR: &str = "0.0.0.0:50051";
 
 // -----------------------------------------------------------------------------
 // Linux / Raspberry Pi 3 Hardware GPIO Implementation
 // -----------------------------------------------------------------------------
+
+/// Switches are wired active LOW against a pull-up: a closed contact reads Low.
 #[cfg(target_os = "linux")]
-async fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::error::Error>> {
-    use rppal::gpio::{Gpio, Level, Trigger};
+fn read_state(pin: &rppal::gpio::InputPin) -> SwitchState {
+    if pin.read() == rppal::gpio::Level::Low {
+        SwitchState::Pressed
+    } else {
+        SwitchState::Released
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn configure_input_pin(
+    gpio: &rppal::gpio::Gpio,
+    pin_number: u8,
+    state: &SharedState,
+) -> Result<rppal::gpio::InputPin, rppal::gpio::Error> {
+    gpio.get(pin_number)
+        .map(|pin| pin.into_input_pullup())
+        .inspect_err(|e| {
+            state.log(
+                LogLevel::Error,
+                "gpio",
+                format!("Failed to configure GPIO {}: {}", pin_number, e),
+            )
+        })
+}
+
+#[cfg(target_os = "linux")]
+fn monitor_hardware_switch(
+    mut pin: rppal::gpio::InputPin,
+    switch_id: SwitchId,
+    pin_number: u8,
+    state: Arc<SharedState>,
+    config: DebounceConfig,
+) {
     use std::time::Instant;
 
+    let mut filter = DebounceFilter::new(read_state(&pin), config);
+
+    // Trigger on both rising and falling edges
+    if let Err(e) = pin.set_interrupt(rppal::gpio::Trigger::Both, None) {
+        state.log(
+            LogLevel::Warn,
+            "gpio",
+            format!("Warning: Failed to set interrupt on GPIO {}: {}", pin_number, e),
+        );
+    }
+
+    loop {
+        // Wait for an interrupt edge, or fall back to a 100ms poll timeout
+        let _ = pin.poll_interrupt(true, Some(Duration::from_millis(100)));
+
+        let candidate = read_state(&pin);
+        if candidate == filter.confirmed_state {
+            continue;
+        }
+
+        // Re-sample to ride out contact bounce. The iterator is lazy, so a
+        // mismatching sample aborts the remaining sleeps early.
+        let samples = (0..config.required_stable_samples).map(|_| {
+            std::thread::sleep(config.sample_interval);
+            read_state(&pin)
+        });
+        if !verify_sample_stability(samples, candidate, config.required_stable_samples) {
+            continue;
+        }
+
+        let (confirmed, duration_millis, detail) =
+            match filter.confirm_transition(candidate, Instant::now()) {
+                DebounceOutput::Pressed => (
+                    SwitchState::Pressed,
+                    0,
+                    "contact closed [Active LOW Pressed]".to_string(),
+                ),
+                DebounceOutput::Released { duration_millis } => (
+                    SwitchState::Released,
+                    duration_millis,
+                    format!("contact opened [Released] (held for {}ms)", duration_millis),
+                ),
+                DebounceOutput::NoChange => continue,
+            };
+
+        state.record_event(switch_id, confirmed, pin_number, duration_millis);
+        state.log(
+            LogLevel::Debug,
+            "gpio",
+            format!("{:?} (GPIO {}) {}", switch_id, pin_number, detail),
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::error::Error>> {
     state.log(LogLevel::Info, "gpio", "Initializing rppal hardware GPIO on RPi 3...");
 
-    let gpio = match Gpio::new() {
-        Ok(g) => g,
+    let gpio = match rppal::gpio::Gpio::new() {
+        Ok(gpio) => gpio,
         Err(e) => {
-            state.log(LogLevel::Error, "gpio", format!("Failed to access GPIO: {}. Falling back to simulation mode.", e));
+            state.log(
+                LogLevel::Error,
+                "gpio",
+                format!("Failed to access GPIO: {}. Falling back to simulation mode.", e),
+            );
             spawn_simulated_gpio(state);
             return Ok(());
         }
     };
 
-    // Switch 1 on GPIO 23 with pull-up resistor
-    let mut pin23 = match gpio.get(PIN_SWITCH_1) {
-        Ok(p) => p.into_input_pullup(),
-        Err(e) => {
-            state.log(LogLevel::Error, "gpio", format!("Failed to configure GPIO {}: {}", PIN_SWITCH_1, e));
-            return Err(e.into());
-        }
-    };
+    let pins = SWITCHES
+        .iter()
+        .map(|&(switch_id, pin_number)| {
+            configure_input_pin(&gpio, pin_number, &state).map(|pin| (switch_id, pin_number, pin))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
-    // Switch 2 on GPIO 24 with pull-up resistor
-    let mut pin24 = match gpio.get(PIN_SWITCH_2) {
-        Ok(p) => p.into_input_pullup(),
-        Err(e) => {
-            state.log(LogLevel::Error, "gpio", format!("Failed to configure GPIO {}: {}", PIN_SWITCH_2, e));
-            return Err(e.into());
-        }
-    };
-
-    pin23.set_interrupt(Trigger::Both, Some(Duration::from_millis(DEBOUNCE_MS)))?;
-    pin24.set_interrupt(Trigger::Both, Some(Duration::from_millis(DEBOUNCE_MS)))?;
-
+    let config = DebounceConfig::default();
     state.log(
         LogLevel::Info,
         "gpio",
         format!(
-            "Hardware GPIO ready: SW1 -> GPIO {} (Pull-Up), SW2 -> GPIO {} (Pull-Up)",
-            PIN_SWITCH_1, PIN_SWITCH_2
+            "Hardware GPIO ready: SW1 -> GPIO {} (Pull-Up), SW2 -> GPIO {} (Pull-Up) | Debounce: {} samples @ {:?} ({}ms window)",
+            PIN_SWITCH_1,
+            PIN_SWITCH_2,
+            config.required_stable_samples,
+            config.sample_interval,
+            config.required_stable_samples as u128 * config.sample_interval.as_millis()
         ),
     );
 
-    // Monitoring task for Pin 23
-    let state_23 = state.clone();
-    tokio::task::spawn_blocking(move || {
-        let mut last_press_time: Option<Instant> = None;
-        let mut last_transition = Instant::now();
-
-        loop {
-            if let Ok(Some(_event)) = pin23.poll_interrupt(true, Some(Duration::from_millis(500))) {
-                let now = Instant::now();
-                if now.duration_since(last_transition) < Duration::from_millis(DEBOUNCE_MS) {
-                    continue;
-                }
-                last_transition = now;
-
-                let level = pin23.read();
-                match level {
-                    Level::Low => {
-                        last_press_time = Some(now);
-                        state_23.record_event(SwitchId::Switch1, SwitchState::Pressed, PIN_SWITCH_1, 0);
-                        state_23.log(LogLevel::Debug, "gpio", "Switch 1 contact closed (Active LOW)");
-                    }
-                    Level::High => {
-                        let duration = last_press_time
-                            .take()
-                            .map(|t| t.elapsed().as_millis() as u32)
-                            .unwrap_or(0);
-                        state_23.record_event(
-                            SwitchId::Switch1,
-                            SwitchState::Released,
-                            PIN_SWITCH_1,
-                            duration,
-                        );
-                        state_23.log(LogLevel::Debug, "gpio", format!("Switch 1 released after {}ms", duration));
-                    }
-                }
-            }
-        }
-    });
-
-    // Monitoring task for Pin 24
-    let state_24 = state.clone();
-    tokio::task::spawn_blocking(move || {
-        let mut last_press_time: Option<Instant> = None;
-        let mut last_transition = Instant::now();
-
-        loop {
-            if let Ok(Some(_event)) = pin24.poll_interrupt(true, Some(Duration::from_millis(500))) {
-                let now = Instant::now();
-                if now.duration_since(last_transition) < Duration::from_millis(DEBOUNCE_MS) {
-                    continue;
-                }
-                last_transition = now;
-
-                let level = pin24.read();
-                match level {
-                    Level::Low => {
-                        last_press_time = Some(now);
-                        state_24.record_event(SwitchId::Switch2, SwitchState::Pressed, PIN_SWITCH_2, 0);
-                        state_24.log(LogLevel::Debug, "gpio", "Switch 2 contact closed (Active LOW)");
-                    }
-                    Level::High => {
-                        let duration = last_press_time
-                            .take()
-                            .map(|t| t.elapsed().as_millis() as u32)
-                            .unwrap_or(0);
-                        state_24.record_event(
-                            SwitchId::Switch2,
-                            SwitchState::Released,
-                            PIN_SWITCH_2,
-                            duration,
-                        );
-                        state_24.log(LogLevel::Debug, "gpio", format!("Switch 2 released after {}ms", duration));
-                    }
-                }
-            }
-        }
-    });
+    for (switch_id, pin_number, pin) in pins {
+        let state = state.clone();
+        tokio::task::spawn_blocking(move || {
+            monitor_hardware_switch(pin, switch_id, pin_number, state, config);
+        });
+    }
 
     Ok(())
 }
@@ -147,7 +171,7 @@ async fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::er
 // Non-Linux / Simulation Mock for local testing on macOS / Windows
 // -----------------------------------------------------------------------------
 #[cfg(not(target_os = "linux"))]
-async fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::error::Error>> {
+fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::error::Error>> {
     spawn_simulated_gpio(state);
     Ok(())
 }
@@ -159,24 +183,15 @@ fn spawn_simulated_gpio(state: Arc<SharedState>) {
         "Running in SIMULATION mode. (Simulating periodic switch pulses + keyboard trigger)",
     );
 
-    let state_sim = state.clone();
     tokio::spawn(async move {
-        let mut toggle = false;
-        loop {
+        for (switch_id, pin) in SWITCHES.iter().copied().cycle() {
             tokio::time::sleep(Duration::from_secs(4)).await;
-            toggle = !toggle;
-            let (sw_id, pin) = if toggle {
-                (SwitchId::Switch1, PIN_SWITCH_1)
-            } else {
-                (SwitchId::Switch2, PIN_SWITCH_2)
-            };
-
-            state_sim.log(LogLevel::Debug, "sim", format!("Simulating {:?} press", sw_id));
-            state_sim.record_event(sw_id, SwitchState::Pressed, pin, 0);
+            state.log(LogLevel::Debug, "sim", format!("Simulating {:?} press", switch_id));
+            state.record_event(switch_id, SwitchState::Pressed, pin, 0);
 
             tokio::time::sleep(Duration::from_millis(350)).await;
-            state_sim.record_event(sw_id, SwitchState::Released, pin, 350);
-            state_sim.log(LogLevel::Debug, "sim", format!("Simulating {:?} release", sw_id));
+            state.record_event(switch_id, SwitchState::Released, pin, 350);
+            state.log(LogLevel::Debug, "sim", format!("Simulating {:?} release", switch_id));
         }
     });
 }
@@ -187,15 +202,14 @@ fn spawn_heartbeat_logger(state: Arc<SharedState>) {
         let mut ticker = tokio::time::interval(Duration::from_secs(10));
         loop {
             ticker.tick().await;
-            let uptime = state.start_time.elapsed().as_secs();
-            let p1 = state.switch_1_presses.load(std::sync::atomic::Ordering::Relaxed);
-            let p2 = state.switch_2_presses.load(std::sync::atomic::Ordering::Relaxed);
             state.log(
                 LogLevel::Info,
                 "health",
                 format!(
                     "System heartbeat: Uptime={}s | Press Counts: SW1={} SW2={}",
-                    uptime, p1, p2
+                    state.start_time.elapsed().as_secs(),
+                    state.switch_1_presses.load(Ordering::Relaxed),
+                    state.switch_2_presses.load(Ordering::Relaxed),
                 ),
             );
         }
@@ -206,28 +220,32 @@ fn spawn_heartbeat_logger(state: Arc<SharedState>) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", "==================================================".cyan());
     println!("{}", "  Raspberry Pi 3 — gRPC Hardware Node Service".bright_cyan().bold());
-    println!("{}", "  Pins: SW1 -> GPIO 23 (Pull-up) | SW2 -> GPIO 24 (Pull-up)".dimmed());
+    println!(
+        "{}",
+        format!(
+            "  Pins: SW1 -> GPIO {} (Pull-up) | SW2 -> GPIO {} (Pull-up)",
+            PIN_SWITCH_1, PIN_SWITCH_2
+        )
+        .dimmed()
+    );
     println!("{}", "==================================================".cyan());
 
     let state = Arc::new(SharedState::new());
 
-    // Spawn GPIO hardware / simulation worker
-    spawn_gpio_tasks(state.clone()).await?;
-
-    // Spawn diagnostic heartbeat
+    spawn_gpio_tasks(state.clone())?;
     spawn_heartbeat_logger(state.clone());
 
-    let addr: SocketAddr = "0.0.0.0:50051".parse()?;
+    let addr: SocketAddr = LISTEN_ADDR.parse()?;
     state.log(
         LogLevel::Info,
         "grpc",
         format!("Starting gRPC server listening on {}", addr),
     );
 
-    let service = TelemetryServiceImpl::new(state.clone());
-
     Server::builder()
-        .add_service(TelemetryServiceServer::new(service))
+        .add_service(TelemetryServiceServer::new(TelemetryServiceImpl::new(
+            state.clone(),
+        )))
         .serve(addr)
         .await?;
 

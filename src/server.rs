@@ -16,8 +16,6 @@ use crate::proto::{
 
 pub const PIN_SWITCH_1: u8 = 23;
 pub const PIN_SWITCH_2: u8 = 24;
-#[allow(dead_code)]
-pub const DEBOUNCE_MS: u64 = 20;
 
 pub fn now_millis() -> i64 {
     SystemTime::now()

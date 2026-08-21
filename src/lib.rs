@@ -2,8 +2,10 @@ pub mod proto {
     tonic::include_proto!("telemetry.v1");
 }
 
+pub mod debouncer;
 pub mod server;
 
+pub use debouncer::{DebounceConfig, DebounceFilter, DebounceOutput};
 pub use proto::telemetry_service_client::TelemetryServiceClient;
 pub use proto::telemetry_service_server::{TelemetryService, TelemetryServiceServer};
 pub use proto::*;
