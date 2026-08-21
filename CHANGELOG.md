@@ -1,3 +1,10 @@
+## [1.0.8](https://github.com/jger/demo_rpi_grpc/compare/v1.0.7...v1.0.8) (2026-08-21)
+
+
+### Bug Fixes
+
+* restrict pi_node to Linux and update documentation for local development workflow ([9870af0](https://github.com/jger/demo_rpi_grpc/commit/9870af0388b549504279561fa61662c4872c1bff))
+
 ## [1.0.7](https://github.com/jger/demo_rpi_grpc/compare/v1.0.6...v1.0.7) (2026-08-21)
 
 
