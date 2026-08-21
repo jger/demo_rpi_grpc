@@ -25,16 +25,21 @@ const LISTEN_ADDR: &str = "0.0.0.0:50051";
 
 /// Switches are wired active LOW against a pull-up: a closed contact reads Low.
 #[cfg(target_os = "linux")]
-fn level_to_state(level: rppal::gpio::Level) -> SwitchState {
-    match level {
-        rppal::gpio::Level::Low => SwitchState::Pressed,
-        rppal::gpio::Level::High => SwitchState::Released,
+fn read_state(pin: &rppal::gpio::InputPin) -> SwitchState {
+    if pin.read() == rppal::gpio::Level::Low {
+        SwitchState::Pressed
+    } else {
+        SwitchState::Released
     }
 }
 
 #[cfg(target_os = "linux")]
-fn read_state(pin: &rppal::gpio::InputPin) -> SwitchState {
-    level_to_state(pin.read())
+fn event_to_state(event: rppal::gpio::Event, pin: &rppal::gpio::InputPin) -> SwitchState {
+    match event.trigger {
+        rppal::gpio::Trigger::FallingEdge => SwitchState::Pressed,
+        rppal::gpio::Trigger::RisingEdge => SwitchState::Released,
+        _ => read_state(pin),
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -89,7 +94,7 @@ fn monitor_hardware_switch(
     loop {
         let current_state = if interrupt_supported {
             match pin.poll_interrupt(true, Some(Duration::from_millis(250))) {
-                Ok(Some(level)) => level_to_state(level),
+                Ok(Some(event)) => event_to_state(event, &pin),
                 Ok(None) => read_state(&pin),
                 Err(e) => {
                     state.log(
