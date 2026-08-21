@@ -1,3 +1,10 @@
+## [1.0.4](https://github.com/jger/demo_rpi_grpc/compare/v1.0.3...v1.0.4) (2026-08-21)
+
+
+### Bug Fixes
+
+* **ci:** switch Linux and RPi targets to static musl to eliminate GLIBC dependency ([141eee5](https://github.com/jger/demo_rpi_grpc/commit/141eee5cd7083f6360bbaee88ba8d6b395441ef3))
+
 ## [1.0.3](https://github.com/jger/demo_rpi_grpc/compare/v1.0.2...v1.0.3) (2026-08-21)
 
 
