@@ -15,6 +15,7 @@
       .component { fill: #334155; stroke: #64748b; stroke-width: 1.5; }
       .resistor { fill: #f59e0b; stroke: #d97706; stroke-width: 1.5; rx: 3px; }
       .switch-btn { fill: #10b981; stroke: #059669; stroke-width: 2; rx: 4px; }
+      .cap-plate { stroke: #a3e635; stroke-width: 3.5; stroke-linecap: round; }
       .node-dot { fill: #f8fafc; }
     </style>
   </defs>
@@ -24,7 +25,7 @@
 
   <!-- Header -->
   <text x="30" y="40" class="title">Raspberry Pi 3 — 2-Switch Active-LOW Circuit Schematic</text>
-  <text x="30" y="60" class="subtitle">External 10kΩ Pull-Up Resistors (or internal BCM Pull-Ups) with Momentary Push Switches</text>
+  <text x="30" y="60" class="subtitle">External 10kΩ Pull-Ups, Momentary Push Switches, and 100nF RC Hardware Debounce (τ = 1.0 ms)</text>
 
   <!-- Raspberry Pi Block -->
   <rect x="30" y="90" width="220" height="300" class="pi-box" />
@@ -72,6 +73,15 @@
   <text x="522" y="275" class="label">SW1 (Push)</text>
   <path d="M 580 235 L 680 235 L 680 360" class="wire-gnd" />
 
+  <!-- ================= DEBOUNCE CAPACITOR C1 (GPIO 23 <-> GND) ================= -->
+  <path d="M 340 235 L 340 291 A 9 9 0 0 1 340 309 L 340 316" class="wire-sig1" />
+  <circle cx="340" cy="235" r="4" class="node-dot" />
+  <line x1="318" y1="316" x2="362" y2="316" class="cap-plate" />
+  <line x1="318" y1="326" x2="362" y2="326" class="cap-plate" />
+  <path d="M 340 326 L 340 360" class="wire-gnd" />
+  <text x="372" y="326" class="label" fill="#a3e635">C1: 100nF</text>
+  <text x="372" y="343" class="label-dim">τ = 1.0 ms</text>
+
   <!-- ================= SWITCH 2 CIRCUIT ================= -->
   <!-- Pullup Resistor 2 -->
   <path d="M 640 140 L 640 240" class="wire-vcc" />
@@ -82,7 +92,7 @@
   <!-- Wire from Pi GPIO 24 to Junction -->
   <path d="M 210 300 L 640 300" class="wire-sig2" />
   <circle cx="640" cy="300" r="4" class="node-dot" />
-  <text x="240" y="290" class="label-dim" fill="#06b6d4">SW2 Signal (Active LOW)</text>
+  <text x="400" y="290" class="label-dim" fill="#06b6d4">SW2 Signal (Active LOW)</text>
 
   <!-- Switch 2 -->
   <path d="M 640 300 L 710 300" class="wire-sig2" />
@@ -91,6 +101,15 @@
   <rect x="730" y="288" width="30" height="24" class="switch-btn" />
   <text x="722" y="340" class="label">SW2 (Push)</text>
   <path d="M 780 300 L 800 300 L 800 360 L 680 360" class="wire-gnd" />
+
+  <!-- ================= DEBOUNCE CAPACITOR C2 (GPIO 24 <-> GND) ================= -->
+  <path d="M 560 300 L 560 316" class="wire-sig2" />
+  <circle cx="560" cy="300" r="4" class="node-dot" />
+  <line x1="538" y1="316" x2="582" y2="316" class="cap-plate" />
+  <line x1="538" y1="326" x2="582" y2="326" class="cap-plate" />
+  <path d="M 560 326 L 560 360" class="wire-gnd" />
+  <text x="592" y="326" class="label" fill="#a3e635">C2: 100nF</text>
+  <text x="592" y="343" class="label-dim">τ = 1.0 ms</text>
 
   <!-- ================= GND BUS ================= -->
   <path d="M 210 360 L 800 360" class="wire-gnd" />
