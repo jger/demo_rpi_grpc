@@ -1,10 +1,10 @@
 //! Hardware Button Verification Utility for Raspberry Pi 3 (Rust port of `check_buttons.py`)
 //! -------------------------------------------------------------------------------------
-//! Checks the 2 momentary push switches wired to GPIO 23 (SW1) and GPIO 24 (SW2)
-//! with internal pull-up resistors enabled (Active-LOW logic).
+//! Checks the 2 momentary push switches wired to GPIO 23 (SW1) and GPIO 24 (SW2),
+//! each with a 10 kΩ pull-up to 3.3 V and a 100 nF debounce cap (Active-LOW logic).
 //!
 //! Raspberry Pi / Linux only — there is no simulation mode. On any other platform,
-//! or when the GPIO peripheral cannot be opened, it exits with an explanatory message.
+//! or when the GPIO lines cannot be claimed, it exits with an explanatory message.
 //!
 //! Usage (on the Raspberry Pi):
 //!   ./check_buttons
@@ -29,13 +29,14 @@ mod pi {
 
     use chrono::Local;
     use colored::Colorize;
-    use rppal::gpio::{Event, Gpio, InputPin, Trigger};
+    use rppal::gpio::{Event, Gpio, InputPin, Level, Trigger};
 
     /// GPIO 23 (physical header pin 16)
     const PIN_SW1: u8 = 23;
     /// GPIO 24 (physical header pin 18)
     const PIN_SW2: u8 = 24;
-    /// Kernel-level debounce applied to each line, same as gpiozero's `bounce_time=0.02`
+    /// Software debounce guard. The board already filters bounce with its 10 kΩ/100 nF
+    /// RC network (τ ≈ 1 ms); this only rejects anything that slips through.
     const DEBOUNCE: Duration = Duration::from_millis(20);
 
     // -------------------------------------------------------------------------
@@ -60,86 +61,163 @@ mod pi {
         let stats = Arc::new(Stats::default());
         let start = Instant::now();
 
-        // No fallback: if the hardware is not there, say so and stop.
-        // The pins are held for the whole session — dropping an `InputPin`
-        // clears its interrupt and the button would go silent.
-        let _pins = match setup_switches(stats.clone()) {
-            Ok(pins) => pins,
-            Err(e) => {
-                eprintln!(
-                    "{}",
-                    format!("Cannot access Raspberry Pi GPIO: {}", e).bright_red()
-                );
-                eprintln!(
-                    "{}",
-                    "Check that this is a Raspberry Pi and that /dev/gpiochip0 is accessible \
-                     (run as root, or add the user to the 'gpio' group)."
-                        .dimmed()
-                );
-                std::process::exit(1);
-            }
-        };
+        if let Err(e) = start_watching(stats.clone()) {
+            report_gpio_error(&e);
+            std::process::exit(1);
+        }
 
-        // Block until Ctrl+C, then report the session totals.
+        // Block until Ctrl+C, then report the session totals and leave immediately:
+        // the poll loop is parked in a blocking syscall and would stall a clean shutdown.
         let _ = tokio::signal::ctrl_c().await;
         println!("\n{}", "Stopping button checker...".bright_yellow());
         stats.print_summary(start);
+        std::process::exit(0);
     }
 
     // -------------------------------------------------------------------------
     // GPIO monitoring
     // -------------------------------------------------------------------------
 
-    /// Configures both pins as pull-up inputs with an independent interrupt handler each.
-    fn setup_switches(stats: Arc<Stats>) -> Result<(InputPin, InputPin), rppal::gpio::Error> {
-        println!(
-            "{}",
-            "Initializing GPIO with rppal (pull-up, 20 ms debounce)...".bright_cyan()
-        );
+    /// Claims both lines, arms them for both-edge interrupts, and starts the poll loop.
+    ///
+    /// Every fallible step happens here, on the calling thread, so a failure is reported
+    /// instead of leaving a silent process. (`set_async_interrupt` cannot do this: it
+    /// requests the line on its own thread and returns `Ok(())` before that can fail.)
+    fn start_watching(stats: Arc<Stats>) -> Result<(), rppal::gpio::Error> {
+        println!("{}", "Claiming GPIO lines via rppal...".bright_cyan());
 
         let gpio = Gpio::new()?;
-        let pin1 = watch_switch(gpio.get(PIN_SW1)?.into_input_pullup(), 1, stats.clone())?;
-        let pin2 = watch_switch(gpio.get(PIN_SW2)?.into_input_pullup(), 2, stats)?;
+        let mut pin1 = gpio.get(PIN_SW1)?.into_input_pullup();
+        let mut pin2 = gpio.get(PIN_SW2)?.into_input_pullup();
+
+        // Idle level tells you instantly whether the pull-ups are doing their job:
+        // an unpressed Active-LOW button must read High.
+        report_idle_level(1, &pin1);
+        report_idle_level(2, &pin2);
+
+        // No kernel debounce attribute: the board debounces in hardware, and a rejected
+        // debounce attribute is one more way for the line request to fail.
+        pin1.set_interrupt(Trigger::Both, None)?;
+        pin2.set_interrupt(Trigger::Both, None)?;
 
         println!(
             "{}\n",
             "✓ Ready! Press the physical buttons on the breadboard.".bright_green()
         );
-        Ok((pin1, pin2))
+
+        std::thread::spawn(move || poll_loop(gpio, pin1, pin2, stats));
+        Ok(())
     }
 
-    /// Attaches an asynchronous both-edge interrupt to one switch.
+    /// Watches both switches from a single thread.
     ///
-    /// `set_async_interrupt` gives this pin its own dedicated poll thread inside rppal,
-    /// so the two switches never wait on each other. (Do *not* use `poll_interrupt` here:
-    /// it serializes every pin in the process behind one global lock.)
-    ///
-    /// Wiring is Active-LOW: the internal pull-up holds the line HIGH while the switch
-    /// is open, and pressing it closes the contact to ground, pulling the line LOW.
-    /// So a falling edge is a press and a rising edge is a release.
-    fn watch_switch(
-        mut pin: InputPin,
-        sw_id: u8,
-        stats: Arc<Stats>,
-    ) -> Result<InputPin, rppal::gpio::Error> {
-        let pin_number = pin.pin();
-        let mut press_start: Option<Instant> = None;
+    /// `poll_interrupts` is the supported way to wait on several pins: rppal funnels all
+    /// synchronous polling through one global lock and one shared epoll, so polling each
+    /// pin from its own thread makes the two switches block and cannibalise each other's
+    /// events. `reset: false` returns events cached during a previous wait rather than
+    /// discarding them, so simultaneous presses are both delivered.
+    fn poll_loop(gpio: Gpio, pin1: InputPin, pin2: InputPin, stats: Arc<Stats>) {
+        let pins = [&pin1, &pin2];
+        let mut sw1 = SwitchTracker::new(1, PIN_SW1);
+        let mut sw2 = SwitchTracker::new(2, PIN_SW2);
 
-        pin.set_async_interrupt(Trigger::Both, Some(DEBOUNCE), move |event: Event| {
-            match event.trigger {
-                Trigger::FallingEdge => {
-                    press_start = Some(Instant::now());
-                    stats.on_press(sw_id, pin_number);
+        loop {
+            match gpio.poll_interrupts(&pins, false, None) {
+                Ok(Some((pin, event))) => {
+                    let tracker = if pin.pin() == PIN_SW1 {
+                        &mut sw1
+                    } else {
+                        &mut sw2
+                    };
+                    tracker.handle(event, &stats);
                 }
-                Trigger::RisingEdge => {
-                    let held = press_start.take().map_or(Duration::ZERO, |t| t.elapsed());
-                    stats.on_release(sw_id, pin_number, held);
+                Ok(None) => {} // timeout; cannot happen with an indefinite wait
+                Err(e) => {
+                    eprintln!("{}", format!("GPIO polling stopped: {}", e).bright_red());
+                    return;
                 }
-                _ => {}
             }
-        })?;
+        }
+    }
 
-        Ok(pin)
+    /// Per-switch edge bookkeeping: debounce guard, press/release state, hold timing.
+    struct SwitchTracker {
+        sw_id: u8,
+        pin_number: u8,
+        pressed: bool,
+        press_start: Option<Instant>,
+        last_edge: Option<Instant>,
+    }
+
+    impl SwitchTracker {
+        fn new(sw_id: u8, pin_number: u8) -> Self {
+            Self {
+                sw_id,
+                pin_number,
+                pressed: false,
+                press_start: None,
+                last_edge: None,
+            }
+        }
+
+        /// Active-LOW wiring: a falling edge is a press, a rising edge is a release.
+        fn handle(&mut self, event: Event, stats: &Stats) {
+            let now = Instant::now();
+
+            // Reject contact chatter, and any repeat of an edge we already acted on.
+            if self.last_edge.is_some_and(|t| now - t < DEBOUNCE) {
+                return;
+            }
+            let pressed = match event.trigger {
+                Trigger::FallingEdge => true,
+                Trigger::RisingEdge => false,
+                _ => return,
+            };
+            if pressed == self.pressed {
+                return;
+            }
+
+            self.last_edge = Some(now);
+            self.pressed = pressed;
+
+            if pressed {
+                self.press_start = Some(now);
+                stats.on_press(self.sw_id, self.pin_number);
+            } else {
+                let held = self.press_start.take().map_or(Duration::ZERO, |t| now - t);
+                stats.on_release(self.sw_id, self.pin_number, held);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Diagnostics
+    // -------------------------------------------------------------------------
+
+    fn report_idle_level(sw_id: u8, pin: &InputPin) {
+        let level = pin.read();
+        let note = if level == Level::High {
+            "idle High — pull-up OK".bright_green()
+        } else {
+            "idle LOW — button held down, or the pull-up to 3.3 V is missing".bright_red()
+        };
+        println!("  SW{} (GPIO {}): {}", sw_id, pin.pin(), note);
+    }
+
+    fn report_gpio_error(e: &rppal::gpio::Error) {
+        eprintln!("{}", format!("Cannot claim Raspberry Pi GPIO: {}", e).bright_red());
+        eprintln!(
+            "{}",
+            "  • Is pi_node (or another GPIO program) already running and holding GPIO 23/24? \
+             Stop it first — a line can only be claimed by one process."
+                .dimmed()
+        );
+        eprintln!(
+            "{}",
+            "  • Otherwise check that /dev/gpiochip0 is accessible (run as root, or add the \
+             user to the 'gpio' group)."
+                .dimmed()
+        );
     }
 
     // -------------------------------------------------------------------------
