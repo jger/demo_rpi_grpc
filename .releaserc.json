@@ -6,7 +6,7 @@
     [
       "@semantic-release/commit-analyzer",
       {
-        "preset": "conventionalcommits",
+        "preset": "angular",
         "releaseRules": [
           { "type": "feat", "release": "minor" },
           { "type": "fix", "release": "patch" },
@@ -23,7 +23,7 @@
     [
       "@semantic-release/release-notes-generator",
       {
-        "preset": "conventionalcommits"
+        "preset": "angular"
       }
     ],
     [
@@ -35,8 +35,7 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "sed -i.bak -E 's/^version = \".*\"/version = \"${nextRelease.version}\"/' Cargo.toml && rm -f Cargo.toml.bak && cargo check --all-targets",
-        "successCmd": "echo \"new_release_published=true\" >> $GITHUB_OUTPUT && echo \"new_release_version=${nextRelease.version}\" >> $GITHUB_OUTPUT && echo \"new_release_git_tag=${nextRelease.gitTag}\" >> $GITHUB_OUTPUT || true"
+        "prepareCmd": "sed -i.bak -E 's/^version = \".*\"/version = \"${nextRelease.version}\"/' Cargo.toml && rm -f Cargo.toml.bak && cargo check --all-targets"
       }
     ],
     [
