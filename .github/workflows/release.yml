@@ -87,7 +87,7 @@ jobs:
             use_cross: false
 
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             platform_name: macos-x86_64-intel
             use_cross: false
 
