@@ -46,7 +46,7 @@ sudo ./target/release/pi_node
 
 ---
 
-## 3. Cross-Compiling with `cross`
+## 3. Cross-Compiling with `cross` (Static musl Binaries)
 
 From your development machine:
 
@@ -54,14 +54,14 @@ From your development machine:
 # Install cross tool
 cargo install cross --git https://github.com/cross-rs/cross
 
-# For 32-bit Raspberry Pi OS (ARMv7):
-cross build --target armv7-unknown-linux-gnueabihf --release --bin pi_node
+# For 32-bit Raspberry Pi OS (ARMv7 - static, zero GLIBC runtime dependency):
+cross build --target armv7-unknown-linux-musleabihf --release --bin pi_node
 
-# For 64-bit Raspberry Pi OS (aarch64):
-cross build --target aarch64-unknown-linux-gnu --release --bin pi_node
+# For 64-bit Raspberry Pi OS (aarch64 - static, zero GLIBC runtime dependency):
+cross build --target aarch64-unknown-linux-musl --release --bin pi_node
 
 # Copy binary to Raspberry Pi:
-scp target/armv7-unknown-linux-gnueabihf/release/pi_node pi@raspberrypi.local:~/
+scp target/armv7-unknown-linux-musleabihf/release/pi_node pi@raspberrypi.local:~/
 ```
 
 ---

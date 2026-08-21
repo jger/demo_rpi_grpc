@@ -64,21 +64,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # --- Raspberry Pi / Linux Targets ---
-          - target: armv7-unknown-linux-gnueabihf
+          # --- Raspberry Pi / Linux Targets (Static musl - zero GLIBC runtime dependency) ---
+          - target: armv7-unknown-linux-musleabihf
             os: ubuntu-latest
             platform_name: rpi-armv7-linux
             use_cross: true
 
-          - target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             platform_name: rpi-aarch64-linux
             use_cross: true
 
-          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             platform_name: x86_64-linux
-            use_cross: false
+            use_cross: true
 
           # --- macOS Targets ---
           - target: aarch64-apple-darwin

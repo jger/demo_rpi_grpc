@@ -181,8 +181,8 @@ make help
 | **Run Node (Local)** | `make run-node` | `cargo run --bin pi_node` |
 | **Run Client** | `make run-receiver` | `cargo run --bin log_receiver` |
 | **Build Release** | `make build-release` | `cargo build --release` |
-| **Cross-Compile (RPi 32-bit)** | `make cross-rpi32` | `cross build --target armv7-unknown-linux-gnueabihf --release` |
-| **Cross-Compile (RPi 64-bit)** | `make cross-rpi64` | `cross build --target aarch64-unknown-linux-gnu --release` |
+| **Cross-Compile (RPi 32-bit)** | `make cross-rpi32` | `cross build --target armv7-unknown-linux-musleabihf --release` |
+| **Cross-Compile (RPi 64-bit)** | `make cross-rpi64` | `cross build --target aarch64-unknown-linux-musl --release` |
 | **Deploy to Pi** | `make deploy-rpi RPI_HOST=pi@192.168.1.50` | `scp target/.../pi_node pi@192.168.1.50:~/` |
 | **Test & Lint** | `make test` / `make clippy` | `cargo test` / `cargo clippy` |
 
@@ -235,19 +235,19 @@ cargo build --release --bin pi_node
 ./target/release/pi_node
 ```
 
-### Option B: Cross-Compile from Workstation
+### Option B: Cross-Compile from Workstation (Static musl binaries)
 ```bash
 # Install cross tool
 cargo install cross --git https://github.com/cross-rs/cross
 
-# For 32-bit Raspberry Pi OS (armv7):
-cross build --target armv7-unknown-linux-gnueabihf --release --bin pi_node
+# For 32-bit Raspberry Pi OS (armv7 - static, runs on all Pi OS versions):
+cross build --target armv7-unknown-linux-musleabihf --release --bin pi_node
 
-# For 64-bit Raspberry Pi OS (aarch64):
-cross build --target aarch64-unknown-linux-gnu --release --bin pi_node
+# For 64-bit Raspberry Pi OS (aarch64 - static, runs on all Pi OS versions):
+cross build --target aarch64-unknown-linux-musl --release --bin pi_node
 
 # Copy to Pi:
-scp target/armv7-unknown-linux-gnueabihf/release/pi_node pi@raspberrypi.local:~/
+scp target/armv7-unknown-linux-musleabihf/release/pi_node pi@raspberrypi.local:~/
 ```
 
 ### Option C: Run as a `systemd` Service

@@ -87,11 +87,11 @@ build-macos-universal: build-macos-arm64 build-macos-x86 ## Create macOS Univers
 
 build-rpi: build-rpi32 ## Alias for build-rpi32 (RPi 3 standard 32-bit build)
 
-build-rpi32: ## Build release binaries for Raspberry Pi OS 32-bit (ARMv7 / RPi 3)
-	cross build --target armv7-unknown-linux-gnueabihf --release --bin pi_node --bin log_receiver
+build-rpi32: ## Build release binaries for Raspberry Pi OS 32-bit (ARMv7 / RPi 3, static musl)
+	cross build --target armv7-unknown-linux-musleabihf --release --bin pi_node --bin log_receiver
 
-build-rpi64: ## Build release binaries for Raspberry Pi OS 64-bit (AArch64 / RPi 3, 4, 5)
-	cross build --target aarch64-unknown-linux-gnu --release --bin pi_node --bin log_receiver
+build-rpi64: ## Build release binaries for Raspberry Pi OS 64-bit (AArch64 / RPi 3, 4, 5, static musl)
+	cross build --target aarch64-unknown-linux-musl --release --bin pi_node --bin log_receiver
 
 cross-rpi32: build-rpi32 ## (Alias) Cross-compile for RPi 32-bit
 
@@ -99,12 +99,12 @@ cross-rpi64: build-rpi64 ## (Alias) Cross-compile for RPi 64-bit
 
 deploy-rpi: build-rpi32 ## Build 32-bit binary and SCP to Raspberry Pi
 	@echo "$(CYAN)Deploying pi_node to $(RPI_HOST):$(RPI_DIR)...$(RESET)"
-	scp target/armv7-unknown-linux-gnueabihf/release/pi_node $(RPI_HOST):$(RPI_DIR)/
+	scp target/armv7-unknown-linux-musleabihf/release/pi_node $(RPI_HOST):$(RPI_DIR)/
 	@echo "$(GREEN)Deployment complete!$(RESET)"
 
 deploy-rpi64: build-rpi64 ## Build 64-bit binary and SCP to Raspberry Pi
 	@echo "$(CYAN)Deploying 64-bit pi_node to $(RPI_HOST):$(RPI_DIR)...$(RESET)"
-	scp target/aarch64-unknown-linux-gnu/release/pi_node $(RPI_HOST):$(RPI_DIR)/
+	scp target/aarch64-unknown-linux-musl/release/pi_node $(RPI_HOST):$(RPI_DIR)/
 	@echo "$(GREEN)Deployment complete!$(RESET)"
 
 ## -----------------------------------------------------------------------------
