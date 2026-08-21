@@ -1,3 +1,11 @@
+## [1.0.2](https://github.com/jger/demo_rpi_grpc/compare/v1.0.1...v1.0.2) (2026-08-21)
+
+
+### Bug Fixes
+
+* publish standalone binary assets to github release ([4533f9d](https://github.com/jger/demo_rpi_grpc/commit/4533f9d2c914d7f4a1f6132a0f662c218d4eae63))
+* switch release preset to angular and remove unused changelog dependency ([13ffac2](https://github.com/jger/demo_rpi_grpc/commit/13ffac25a0e23710898f7c140930cd74c562f8a2))
+
 ## [1.0.1](https://github.com/jger/demo_rpi_grpc/compare/v1.0.0...v1.0.1) (2026-08-20)
 
 ### Bug Fixes
