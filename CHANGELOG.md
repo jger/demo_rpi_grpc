@@ -1,3 +1,10 @@
+## [1.0.9](https://github.com/jger/demo_rpi_grpc/compare/v1.0.8...v1.0.9) (2026-08-21)
+
+
+### Bug Fixes
+
+* consolidate GPIO monitoring into a single thread using efficient multi-pin polling and software debouncing ([755a87f](https://github.com/jger/demo_rpi_grpc/commit/755a87fcff41123542035a545ff4fd4bc084b0d2))
+
 ## [1.0.8](https://github.com/jger/demo_rpi_grpc/compare/v1.0.7...v1.0.8) (2026-08-21)
 
 
