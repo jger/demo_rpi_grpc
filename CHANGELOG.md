@@ -1,3 +1,11 @@
+## [1.0.6](https://github.com/jger/demo_rpi_grpc/compare/v1.0.5...v1.0.6) (2026-08-21)
+
+
+### Bug Fixes
+
+* change duration type to u32 and handle Unspecified switch state ([40c888b](https://github.com/jger/demo_rpi_grpc/commit/40c888bfddfded99bdaaee38c67afea7db0c8485))
+* remove software debounce logic in favor of hardware filtering in pin monitoring ([5aea8a4](https://github.com/jger/demo_rpi_grpc/commit/5aea8a4052995e3af392a816ba32396a1d3fe356))
+
 ## [1.0.5](https://github.com/jger/demo_rpi_grpc/compare/v1.0.4...v1.0.5) (2026-08-21)
 
 
