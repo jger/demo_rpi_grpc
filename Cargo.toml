@@ -1,6 +1,6 @@
 [package]
 name = "minimum-hw-project"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 description = "Raspberry Pi 3 gRPC hardware project with 2 push switches and debug log receiver"
 

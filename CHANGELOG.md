@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/jger/demo_rpi_grpc/compare/v1.0.2...v1.0.3) (2026-08-21)
+
+
+### Bug Fixes
+
+* **ci:** use macos-latest runner for x86_64-apple-darwin target ([601f05d](https://github.com/jger/demo_rpi_grpc/commit/601f05d4b20768a66507515d4d3fd4cc072edf34))
+
 ## [1.0.2](https://github.com/jger/demo_rpi_grpc/compare/v1.0.1...v1.0.2) (2026-08-21)
 
 
