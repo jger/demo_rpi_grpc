@@ -133,7 +133,7 @@ impl SharedState {
             duration_info
         );
 
-        let _ = self.event_tx.send(event.clone());
+        let _ = self.event_tx.send(event);
         event
     }
 }

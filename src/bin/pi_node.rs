@@ -11,11 +11,6 @@ use minimum_hw_project::proto::{LogLevel, SwitchId, SwitchState};
 use minimum_hw_project::server::{PIN_SWITCH_1, PIN_SWITCH_2};
 use minimum_hw_project::{SharedState, TelemetryServiceImpl};
 
-#[cfg(target_os = "linux")]
-use minimum_hw_project::debouncer::{
-    verify_sample_stability, DebounceConfig, DebounceFilter, DebounceOutput,
-};
-
 /// The switches this node owns, in reporting order.
 const SWITCHES: [(SwitchId, u8); 2] = [
     (SwitchId::Switch1, PIN_SWITCH_1),
@@ -61,13 +56,17 @@ fn monitor_hardware_switch(
     switch_id: SwitchId,
     pin_number: u8,
     state: Arc<SharedState>,
-    config: DebounceConfig,
 ) {
     use std::time::Instant;
 
-    let mut filter = DebounceFilter::new(read_state(&pin), config);
+    let mut last_state = read_state(&pin);
+    let mut press_start: Option<Instant> = if last_state == SwitchState::Pressed {
+        Some(Instant::now())
+    } else {
+        None
+    };
 
-    // Trigger on both rising and falling edges
+    // Trigger on both rising and falling edges (hardware capacitors handle filtering)
     if let Err(e) = pin.set_interrupt(rppal::gpio::Trigger::Both, None) {
         state.log(
             LogLevel::Warn,
@@ -80,42 +79,42 @@ fn monitor_hardware_switch(
         // Wait for an interrupt edge, or fall back to a 100ms poll timeout
         let _ = pin.poll_interrupt(true, Some(Duration::from_millis(100)));
 
-        let candidate = read_state(&pin);
-        if candidate == filter.confirmed_state {
+        let current_state = read_state(&pin);
+        if current_state == last_state {
             continue;
         }
 
-        // Re-sample to ride out contact bounce. The iterator is lazy, so a
-        // mismatching sample aborts the remaining sleeps early.
-        let samples = (0..config.required_stable_samples).map(|_| {
-            std::thread::sleep(config.sample_interval);
-            read_state(&pin)
-        });
-        if !verify_sample_stability(samples, candidate, config.required_stable_samples) {
-            continue;
+        last_state = current_state;
+
+        match current_state {
+            SwitchState::Pressed => {
+                press_start = Some(Instant::now());
+                state.record_event(switch_id, SwitchState::Pressed, pin_number, 0);
+                state.log(
+                    LogLevel::Debug,
+                    "gpio",
+                    format!(
+                        "{:?} (GPIO {}) contact closed [Active LOW Pressed]",
+                        switch_id, pin_number
+                    ),
+                );
+            }
+            SwitchState::Released => {
+                let duration_millis = press_start
+                    .take()
+                    .map(|start| start.elapsed().as_millis() as u64)
+                    .unwrap_or(0);
+                state.record_event(switch_id, SwitchState::Released, pin_number, duration_millis);
+                state.log(
+                    LogLevel::Debug,
+                    "gpio",
+                    format!(
+                        "{:?} (GPIO {}) contact opened [Released] (held for {}ms)",
+                        switch_id, pin_number, duration_millis
+                    ),
+                );
+            }
         }
-
-        let (confirmed, duration_millis, detail) =
-            match filter.confirm_transition(candidate, Instant::now()) {
-                DebounceOutput::Pressed => (
-                    SwitchState::Pressed,
-                    0,
-                    "contact closed [Active LOW Pressed]".to_string(),
-                ),
-                DebounceOutput::Released { duration_millis } => (
-                    SwitchState::Released,
-                    duration_millis,
-                    format!("contact opened [Released] (held for {}ms)", duration_millis),
-                ),
-                DebounceOutput::NoChange => continue,
-            };
-
-        state.record_event(switch_id, confirmed, pin_number, duration_millis);
-        state.log(
-            LogLevel::Debug,
-            "gpio",
-            format!("{:?} (GPIO {}) {}", switch_id, pin_number, detail),
-        );
     }
 }
 
@@ -143,24 +142,19 @@ fn spawn_gpio_tasks(state: Arc<SharedState>) -> Result<(), Box<dyn std::error::E
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let config = DebounceConfig::default();
     state.log(
         LogLevel::Info,
         "gpio",
         format!(
-            "Hardware GPIO ready: SW1 -> GPIO {} (Pull-Up), SW2 -> GPIO {} (Pull-Up) | Debounce: {} samples @ {:?} ({}ms window)",
-            PIN_SWITCH_1,
-            PIN_SWITCH_2,
-            config.required_stable_samples,
-            config.sample_interval,
-            config.required_stable_samples as u128 * config.sample_interval.as_millis()
+            "Hardware GPIO ready: SW1 -> GPIO {} (Pull-Up), SW2 -> GPIO {} (Pull-Up) | Direct HW Filtered (Capacitors)",
+            PIN_SWITCH_1, PIN_SWITCH_2
         ),
     );
 
     for (switch_id, pin_number, pin) in pins {
         let state = state.clone();
         tokio::task::spawn_blocking(move || {
-            monitor_hardware_switch(pin, switch_id, pin_number, state, config);
+            monitor_hardware_switch(pin, switch_id, pin_number, state);
         });
     }
 
