@@ -1,3 +1,10 @@
+## [1.0.5](https://github.com/jger/demo_rpi_grpc/compare/v1.0.4...v1.0.5) (2026-08-21)
+
+
+### Bug Fixes
+
+* implement robust GPIO debouncing logic with a dedicated service module and unified monitoring loop ([8676ed0](https://github.com/jger/demo_rpi_grpc/commit/8676ed08547841aa3fa4e2c8311a6f6579e82346))
+
 ## [1.0.4](https://github.com/jger/demo_rpi_grpc/compare/v1.0.3...v1.0.4) (2026-08-21)
 
 
