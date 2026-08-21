@@ -102,7 +102,7 @@ fn monitor_hardware_switch(
             SwitchState::Released => {
                 let duration_millis = press_start
                     .take()
-                    .map(|start| start.elapsed().as_millis() as u64)
+                    .map(|start| start.elapsed().as_millis() as u32)
                     .unwrap_or(0);
                 state.record_event(switch_id, SwitchState::Released, pin_number, duration_millis);
                 state.log(
@@ -114,6 +114,7 @@ fn monitor_hardware_switch(
                     ),
                 );
             }
+            SwitchState::Unspecified => {}
         }
     }
 }
