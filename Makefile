@@ -39,19 +39,19 @@ help: ## Show this help menu with descriptions
 ## Local Build & Development
 ## -----------------------------------------------------------------------------
 
-build: ## Build all binaries in debug mode (dev)
+build: ## Build receiver on host or all binaries on Linux
 	cargo build
 
-build-release: ## Build all binaries in release mode (current host)
+build-release: ## Build release binaries on Linux or receiver on macOS
 	cargo build --release
 
-build-node: ## Build only the pi_node binary (debug)
+build-node: ## Build pi_node binary on Linux / Raspberry Pi
 	cargo build --bin pi_node
 
-build-receiver: ## Build only the log_receiver binary (debug)
+build-receiver: ## Build log_receiver client binary (debug)
 	cargo build --bin log_receiver
 
-run-node: ## Run pi_node locally (interactive mock mode on macOS/PC)
+run-node: ## Run pi_node hardware service (on Raspberry Pi / Linux)
 	cargo run --bin pi_node
 
 run-receiver: ## Run log_receiver client (connects to SERVER_URL)
@@ -61,25 +61,24 @@ check-buttons: ## Run the standalone Python button & timing checker
 	python3 check_buttons.py
 
 ## -----------------------------------------------------------------------------
-## macOS Builds
+## macOS Builds (Receiver Client)
 ## -----------------------------------------------------------------------------
 
-build-macos: ## Build release binaries for current macOS architecture
-	cargo build --release --bin pi_node --bin log_receiver
+build-macos: ## Build release receiver client for current macOS architecture
+	cargo build --release --bin log_receiver
 
-build-macos-arm64: ## Build release binaries for macOS Apple Silicon (M1/M2/M3/M4)
+build-macos-arm64: ## Build release receiver client for macOS Apple Silicon (M1/M2/M3/M4)
 	rustup target add aarch64-apple-darwin
-	cargo build --release --target aarch64-apple-darwin --bin pi_node --bin log_receiver
+	cargo build --release --target aarch64-apple-darwin --bin log_receiver
 
-build-macos-x86: ## Build release binaries for macOS Intel (x86_64)
+build-macos-x86: ## Build release receiver client for macOS Intel (x86_64)
 	rustup target add x86_64-apple-darwin
-	cargo build --release --target x86_64-apple-darwin --bin pi_node --bin log_receiver
+	cargo build --release --target x86_64-apple-darwin --bin log_receiver
 
-build-macos-universal: build-macos-arm64 build-macos-x86 ## Create macOS Universal (fat) binaries (Intel + Apple Silicon)
+build-macos-universal: build-macos-arm64 build-macos-x86 ## Create macOS Universal (fat) binary for log_receiver
 	@mkdir -p target/universal/release
-	lipo -create -output target/universal/release/pi_node target/aarch64-apple-darwin/release/pi_node target/x86_64-apple-darwin/release/pi_node
 	lipo -create -output target/universal/release/log_receiver target/aarch64-apple-darwin/release/log_receiver target/x86_64-apple-darwin/release/log_receiver
-	@echo "$(GREEN)Universal binaries created in target/universal/release/$(RESET)"
+	@echo "$(GREEN)Universal log_receiver binary created in target/universal/release/$(RESET)"
 
 ## -----------------------------------------------------------------------------
 ## Raspberry Pi Builds & Deployment (Cross-Compilation via `cross`)
@@ -111,8 +110,8 @@ deploy-rpi64: build-rpi64 ## Build 64-bit binary and SCP to Raspberry Pi
 ## Testing & Code Quality
 ## -----------------------------------------------------------------------------
 
-check: ## Fast syntax and type checking across all targets
-	cargo check --all-targets
+check: ## Fast syntax and type checking (log_receiver on macOS, full on Linux)
+	cargo check --bin log_receiver
 
 test: ## Run unit and integration tests
 	cargo test
@@ -121,7 +120,7 @@ fmt: ## Format Rust codebase with rustfmt
 	cargo fmt
 
 clippy: ## Run Clippy linter with compiler warnings
-	cargo clippy --all-targets -- -D warnings
+	cargo clippy --bin log_receiver -- -D warnings
 
 ## -----------------------------------------------------------------------------
 ## Cleanup

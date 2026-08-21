@@ -64,32 +64,37 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # --- Raspberry Pi / Linux Targets (Static musl - zero GLIBC runtime dependency) ---
+          # --- Raspberry Pi / Linux Targets (Static musl - pi_node + log_receiver) ---
           - target: armv7-unknown-linux-musleabihf
             os: ubuntu-latest
             platform_name: rpi-armv7-linux
             use_cross: true
+            has_pi_node: true
 
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             platform_name: rpi-aarch64-linux
             use_cross: true
+            has_pi_node: true
 
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             platform_name: x86_64-linux
             use_cross: true
+            has_pi_node: true
 
-          # --- macOS Targets ---
+          # --- macOS Targets (Receiver Client only - pi_node is Linux/hardware only) ---
           - target: aarch64-apple-darwin
             os: macos-latest
             platform_name: macos-aarch64-apple-silicon
             use_cross: false
+            has_pi_node: false
 
           - target: x86_64-apple-darwin
             os: macos-latest
             platform_name: macos-x86_64-intel
             use_cross: false
+            has_pi_node: false
 
     steps:
       - name: Checkout Repository
@@ -132,13 +137,13 @@ jobs:
         run: |
           cargo install cross --git https://github.com/cross-rs/cross
 
-      - name: Build Binaries (Native / Cargo)
-        if: "!matrix.use_cross"
+      - name: Build Binaries (macOS Native / Cargo - log_receiver)
+        if: "!matrix.has_pi_node"
         run: |
-          cargo build --release --target ${{ matrix.target }} --bin pi_node --bin log_receiver
+          cargo build --release --target ${{ matrix.target }} --bin log_receiver
 
-      - name: Build Binaries (Cross)
-        if: matrix.use_cross
+      - name: Build Binaries (Linux Cross - pi_node + log_receiver)
+        if: matrix.has_pi_node && matrix.use_cross
         run: |
           cross build --release --target ${{ matrix.target }} --bin pi_node --bin log_receiver
 
@@ -155,16 +160,17 @@ jobs:
           mkdir -p dist/assets
 
           # Copy binaries and README into the archive bundle directory
-          cp "${BIN_PATH}/pi_node" "${ARCHIVE_DIR}/"
+          if [ "${{ matrix.has_pi_node }}" = "true" ]; then
+            cp "${BIN_PATH}/pi_node" "${ARCHIVE_DIR}/"
+            cp "${BIN_PATH}/pi_node" "dist/assets/pi_node-${{ matrix.platform_name }}"
+          fi
+
           cp "${BIN_PATH}/log_receiver" "${ARCHIVE_DIR}/"
+          cp "${BIN_PATH}/log_receiver" "dist/assets/log_receiver-${{ matrix.platform_name }}"
           cp README.md "${ARCHIVE_DIR}/" || true
 
           # Create compressed .tar.gz bundle
           (cd dist && tar -czvf "assets/${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}")
-
-          # Copy direct executable standalone binaries with platform names
-          cp "${BIN_PATH}/pi_node" "dist/assets/pi_node-${{ matrix.platform_name }}"
-          cp "${BIN_PATH}/log_receiver" "dist/assets/log_receiver-${{ matrix.platform_name }}"
 
           # Generate SHA-256 checksums for each release asset
           cd dist/assets

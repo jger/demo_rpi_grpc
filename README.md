@@ -182,9 +182,10 @@ minimum-hw-project/
 
 ---
 
-## 🚀 Quickstart: Local Testing (Simulation Mode)
+## 🚀 Quickstart: Local Receiver & Deployment
 
-You do **not** need a physical Raspberry Pi connected to test and run the project! When compiled on macOS or non-Linux systems, `pi_node` automatically switches into interactive simulation mode.
+- **`pi_node`**: Pure hardware GPIO service running directly on Raspberry Pi (RPi 3, 4, 5).
+- **`log_receiver`**: Universal telemetry & debug client that runs on macOS, Linux, and Windows to monitor the Pi over the network.
 
 ### 🛠️ Using the Makefile:
 Run `make help` to inspect all available commands:
@@ -195,27 +196,21 @@ make help
 
 | Task | Make Command | Equivalent Cargo Command |
 | :--- | :--- | :--- |
-| **Run Node (Local)** | `make run-node` | `cargo run --bin pi_node` |
-| **Run Client** | `make run-receiver` | `cargo run --bin log_receiver` |
-| **Build Release** | `make build-release` | `cargo build --release` |
+| **Run Client (Local)** | `make run-receiver` | `cargo run --bin log_receiver` |
+| **Build Receiver (macOS)** | `make build-macos` | `cargo build --release --bin log_receiver` |
 | **Cross-Compile (RPi 32-bit)** | `make cross-rpi32` | `cross build --target armv7-unknown-linux-musleabihf --release` |
 | **Cross-Compile (RPi 64-bit)** | `make cross-rpi64` | `cross build --target aarch64-unknown-linux-musl --release` |
 | **Deploy to Pi** | `make deploy-rpi RPI_HOST=pi@192.168.1.50` | `scp target/.../pi_node pi@192.168.1.50:~/` |
-| **Test & Lint** | `make test` / `make clippy` | `cargo test` / `cargo clippy` |
+| **Test & Lint** | `make test` / `make clippy` | `cargo test` / `cargo clippy --bin log_receiver` |
 
 ---
 
-### Step-by-Step Manual Run:
+### Step-by-Step Run:
 
-### 1. Start the Server (`pi_node`)
+### 1. Run the Debug Receiver Client (`log_receiver`)
+On your computer (macOS / Linux):
 ```bash
-cargo run --bin pi_node
-```
-
-### 2. Start the Debug Receiver Client (`log_receiver`)
-In another terminal:
-```bash
-cargo run --bin log_receiver
+cargo run --bin log_receiver -- --server-url http://<PI_IP>:50051
 ```
 
 ### 3. Example Terminal Output

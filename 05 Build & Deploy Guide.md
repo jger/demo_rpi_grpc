@@ -5,26 +5,19 @@ status: active
 
 # 05 Build & Deploy Guide
 
-This guide covers building locally on your workstation (with simulated GPIO) and cross-compiling or compiling directly on the **Raspberry Pi 3**.
+This guide covers building the **`pi_node`** service for **Raspberry Pi / Linux** and the **`log_receiver`** client for **macOS / Linux / Windows**.
 
 ---
 
-## 1. Local Development (macOS / Linux / Windows)
+## 1. Local Development & Testing
 
-The project includes an automatic mock hardware mode for local development.
+- **`pi_node`**: Hardware GPIO service compiled for Linux / Raspberry Pi (RPi 3, 4, 5).
+- **`log_receiver`**: Universal telemetry receiver client that runs on macOS, Linux, and Windows to monitor the Pi over the network.
 
-### Run the Pi Node (Server) in Mock Mode:
+### Run the Debug Receiver Client on Workstation (macOS / Linux):
 ```bash
 cd minimum-hw-project
-cargo run --bin pi_node
-```
-*In mock mode on macOS/non-RPi, pressing keys `1` or `2` in the terminal triggers Switch 1 or Switch 2 events.*
-
-### Run the Debug Receiver Client:
-In a second terminal:
-```bash
-cd minimum-hw-project
-cargo run --bin log_receiver
+cargo run --bin log_receiver -- --server-url http://<PI_IP>:50051
 ```
 
 ---
@@ -38,7 +31,7 @@ If Rust is installed on the Pi (Raspberry Pi OS 32-bit `armv7` or 64-bit `aarch6
 git clone <your-repo>
 cd minimum-hw-project
 cargo build --release --bin pi_node
-sudo ./target/release/pi_node
+./target/release/pi_node
 ```
 
 > [!note] Permissions
@@ -48,16 +41,16 @@ sudo ./target/release/pi_node
 
 ## 3. Cross-Compiling with `cross` (Static musl Binaries)
 
-From your development machine:
+From your development machine (macOS / Linux):
 
 ```bash
 # Install cross tool
 cargo install cross --git https://github.com/cross-rs/cross
 
-# For 32-bit Raspberry Pi OS (ARMv7 - static, zero GLIBC runtime dependency):
+# For 32-bit Raspberry Pi OS (ARMv7 - static musl, zero GLIBC dependency):
 cross build --target armv7-unknown-linux-musleabihf --release --bin pi_node
 
-# For 64-bit Raspberry Pi OS (aarch64 - static, zero GLIBC runtime dependency):
+# For 64-bit Raspberry Pi OS (AArch64 - static musl, zero GLIBC dependency):
 cross build --target aarch64-unknown-linux-musl --release --bin pi_node
 
 # Copy binary to Raspberry Pi:
@@ -107,10 +100,9 @@ This repository uses **Semantic Release** and **GitHub Actions** (`.github/workf
 - `docs:`, `chore:`, `ci:`, `test:` ➔ Does not trigger a release.
 
 ### Generated Multi-Platform Release Assets:
-Every release publishes tar archives and SHA-256 checksums to GitHub Releases for:
-- **Raspberry Pi 3 (ARMv7 32-bit)**: `minimum-hw-rpi-armv7-linux-vX.Y.Z.tar.gz`
-- **Raspberry Pi (AArch64 64-bit)**: `minimum-hw-rpi-aarch64-linux-vX.Y.Z.tar.gz`
-- **macOS Apple Silicon (M1/M2/M3/M4)**: `minimum-hw-macos-aarch64-apple-silicon-vX.Y.Z.tar.gz`
-- **macOS Intel (x86_64)**: `minimum-hw-macos-x86_64-intel-vX.Y.Z.tar.gz`
-- **Linux (x86_64)**: `minimum-hw-x86_64-linux-vX.Y.Z.tar.gz`
-
+Every release publishes archives, standalone binaries, and SHA-256 checksums to GitHub Releases:
+- **Raspberry Pi 3 (ARMv7 32-bit)**: `minimum-hw-rpi-armv7-linux-vX.Y.Z.tar.gz` (`pi_node` + `log_receiver`)
+- **Raspberry Pi (AArch64 64-bit)**: `minimum-hw-rpi-aarch64-linux-vX.Y.Z.tar.gz` (`pi_node` + `log_receiver`)
+- **Linux (x86_64)**: `minimum-hw-x86_64-linux-vX.Y.Z.tar.gz` (`pi_node` + `log_receiver`)
+- **macOS Apple Silicon (M1/M2/M3/M4)**: `minimum-hw-macos-aarch64-apple-silicon-vX.Y.Z.tar.gz` (`log_receiver` client)
+- **macOS Intel (x86_64)**: `minimum-hw-macos-x86_64-intel-vX.Y.Z.tar.gz` (`log_receiver` client)

@@ -10,31 +10,48 @@ on:
 
 jobs:
   check-and-test:
-    name: Check & Test (${{ matrix.os }})
+    name: Check & Test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - name: Linux (Full Suite + Cross Targets)
+            os: ubuntu-latest
+            is_linux: true
+
+          - name: macOS (Receiver Client)
+            os: macos-latest
+            is_linux: false
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.is_linux && 'aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf' || '' }}
 
       - name: Install System Dependencies (Linux)
-        if: runner.os == 'Linux'
+        if: matrix.is_linux
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake build-essential protobuf-compiler pkg-config libssl-dev
 
       - name: Install System Dependencies (macOS)
-        if: runner.os == 'macOS'
+        if: "!matrix.is_linux"
         run: |
           brew install protobuf cmake
 
-      - name: Cargo Check
-        run: cargo check --all-targets
+      - name: Cargo Check & Test (Linux)
+        if: matrix.is_linux
+        run: |
+          cargo check --all-targets
+          cargo test
+          cargo check --target aarch64-unknown-linux-gnu --bin pi_node
+          cargo check --target armv7-unknown-linux-gnueabihf --bin pi_node
 
-      - name: Run Tests
-        run: cargo test
+      - name: Cargo Check (macOS - Receiver Client)
+        if: "!matrix.is_linux"
+        run: |
+          cargo check --bin log_receiver
