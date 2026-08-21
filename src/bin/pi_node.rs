@@ -25,12 +25,16 @@ const LISTEN_ADDR: &str = "0.0.0.0:50051";
 
 /// Switches are wired active LOW against a pull-up: a closed contact reads Low.
 #[cfg(target_os = "linux")]
-fn read_state(pin: &rppal::gpio::InputPin) -> SwitchState {
-    if pin.read() == rppal::gpio::Level::Low {
-        SwitchState::Pressed
-    } else {
-        SwitchState::Released
+fn level_to_state(level: rppal::gpio::Level) -> SwitchState {
+    match level {
+        rppal::gpio::Level::Low => SwitchState::Pressed,
+        rppal::gpio::Level::High => SwitchState::Released,
     }
+}
+
+#[cfg(target_os = "linux")]
+fn read_state(pin: &rppal::gpio::InputPin) -> SwitchState {
+    level_to_state(pin.read())
 }
 
 #[cfg(target_os = "linux")]
@@ -66,20 +70,42 @@ fn monitor_hardware_switch(
         None
     };
 
-    // Trigger on both rising and falling edges (hardware capacitors handle filtering)
-    if let Err(e) = pin.set_interrupt(rppal::gpio::Trigger::Both, None) {
-        state.log(
-            LogLevel::Warn,
-            "gpio",
-            format!("Warning: Failed to set interrupt on GPIO {}: {}", pin_number, e),
-        );
-    }
+    // Trigger on both rising and falling edges (Active-LOW: falling=pressed, rising=released)
+    let interrupt_supported = match pin.set_interrupt(rppal::gpio::Trigger::Both, None) {
+        Ok(_) => true,
+        Err(e) => {
+            state.log(
+                LogLevel::Warn,
+                "gpio",
+                format!(
+                    "Warning: Failed to set interrupt on GPIO {}: {}. Using fallback polling.",
+                    pin_number, e
+                ),
+            );
+            false
+        }
+    };
 
     loop {
-        // Wait for an interrupt edge, or fall back to a 100ms poll timeout
-        let _ = pin.poll_interrupt(true, Some(Duration::from_millis(100)));
+        let current_state = if interrupt_supported {
+            match pin.poll_interrupt(true, Some(Duration::from_millis(250))) {
+                Ok(Some(level)) => level_to_state(level),
+                Ok(None) => read_state(&pin),
+                Err(e) => {
+                    state.log(
+                        LogLevel::Warn,
+                        "gpio",
+                        format!("Interrupt poll error on GPIO {}: {}", pin_number, e),
+                    );
+                    std::thread::sleep(Duration::from_millis(50));
+                    read_state(&pin)
+                }
+            }
+        } else {
+            std::thread::sleep(Duration::from_millis(20));
+            read_state(&pin)
+        };
 
-        let current_state = read_state(&pin);
         if current_state == last_state {
             continue;
         }
@@ -175,20 +201,44 @@ fn spawn_simulated_gpio(state: Arc<SharedState>) {
     state.log(
         LogLevel::Info,
         "sim",
-        "Running in SIMULATION mode. (Simulating periodic switch pulses + keyboard trigger)",
+        "Running in SIMULATION mode. (Simulating independent periodic switch pulses for SW1 and SW2)",
     );
 
-    tokio::spawn(async move {
-        for (switch_id, pin) in SWITCHES.iter().copied().cycle() {
-            tokio::time::sleep(Duration::from_secs(4)).await;
-            state.log(LogLevel::Debug, "sim", format!("Simulating {:?} press", switch_id));
-            state.record_event(switch_id, SwitchState::Pressed, pin, 0);
+    for &(switch_id, pin) in &SWITCHES {
+        let state = state.clone();
+        tokio::spawn(async move {
+            let (initial_delay, interval, hold_duration) = match switch_id {
+                SwitchId::Switch1 => (Duration::from_millis(800), Duration::from_millis(3200), 280),
+                SwitchId::Switch2 => (Duration::from_millis(2200), Duration::from_millis(4600), 360),
+                _ => (Duration::from_secs(1), Duration::from_secs(4), 300),
+            };
 
-            tokio::time::sleep(Duration::from_millis(350)).await;
-            state.record_event(switch_id, SwitchState::Released, pin, 350);
-            state.log(LogLevel::Debug, "sim", format!("Simulating {:?} release", switch_id));
-        }
-    });
+            tokio::time::sleep(initial_delay).await;
+
+            loop {
+                state.log(
+                    LogLevel::Debug,
+                    "sim",
+                    format!("{:?} (GPIO {}) contact closed [Pressed]", switch_id, pin),
+                );
+                state.record_event(switch_id, SwitchState::Pressed, pin, 0);
+
+                tokio::time::sleep(Duration::from_millis(hold_duration)).await;
+
+                state.record_event(switch_id, SwitchState::Released, pin, hold_duration as u32);
+                state.log(
+                    LogLevel::Debug,
+                    "sim",
+                    format!(
+                        "{:?} (GPIO {}) contact opened [Released] (held for {}ms)",
+                        switch_id, pin, hold_duration
+                    ),
+                );
+
+                tokio::time::sleep(interval).await;
+            }
+        });
+    }
 }
 
 // Periodic system health diagnostic logger
