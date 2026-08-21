@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       manual_tag:
-        description: 'Tag name for manual release (e.g. v0.1.0)'
+        description: 'Tag name for manual release (e.g. v1.0.0)'
         required: false
         default: ''
 
@@ -31,32 +31,31 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Setup Rust (for cargo lockfile sync)
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Semantic Release & Plugins
+      - name: Install System Dependencies (Linux)
         run: |
-          npm install -g \
-            semantic-release \
-            @semantic-release/commit-analyzer \
-            @semantic-release/release-notes-generator \
-            @semantic-release/changelog \
-            @semantic-release/exec \
-            @semantic-release/git \
-            @semantic-release/github \
-            conventional-changelog-conventionalcommits
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential protobuf-compiler pkg-config libssl-dev
 
       - name: Run Semantic Release
         id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          extra_plugins: |
+            @semantic-release/commit-analyzer
+            @semantic-release/release-notes-generator
+            @semantic-release/changelog
+            @semantic-release/exec
+            @semantic-release/git
+            @semantic-release/github
+            conventional-changelog-conventionalcommits
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          npx semantic-release
 
   build-release-assets:
-    name: Build (${{ matrix.platform_name }})
+    name: Build & Upload Assets (${{ matrix.platform_name }})
     needs: semantic-release
     if: |
       always() &&
@@ -96,18 +95,22 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Determine Release Tag
         id: tag
+        shell: bash
         run: |
           TAG="${{ needs.semantic-release.outputs.new_release_git_tag }}"
           if [ -z "$TAG" ]; then
             TAG="${{ github.event.inputs.manual_tag }}"
           fi
           if [ -z "$TAG" ]; then
-            TAG="v$(cargo read-manifest | jq -r .version 2>/dev/null || echo '0.1.0')"
+            TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo 'v1.0.0')"
           fi
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using release tag: $TAG"
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -152,19 +155,19 @@ jobs:
           mkdir -p "${ARCHIVE_DIR}"
           mkdir -p dist/assets
 
-          # Copy binaries to archive folder
+          # Copy binaries and README into the archive bundle directory
           cp "${BIN_PATH}/pi_node" "${ARCHIVE_DIR}/"
           cp "${BIN_PATH}/log_receiver" "${ARCHIVE_DIR}/"
           cp README.md "${ARCHIVE_DIR}/" || true
 
-          # Create .tar.gz bundle
+          # Create compressed .tar.gz bundle
           (cd dist && tar -czvf "assets/${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}")
 
-          # Copy standalone direct executable binaries
+          # Copy direct executable standalone binaries with platform names
           cp "${BIN_PATH}/pi_node" "dist/assets/pi_node-${{ matrix.platform_name }}"
           cp "${BIN_PATH}/log_receiver" "dist/assets/log_receiver-${{ matrix.platform_name }}"
 
-          # Generate SHA-256 checksums for all release assets
+          # Generate SHA-256 checksums for each release asset
           cd dist/assets
           for file in *; do
             if [ -f "$file" ]; then
@@ -176,11 +179,12 @@ jobs:
             fi
           done
 
-      - name: Upload Assets to GitHub Release
+      - name: Upload Binaries and Archives to GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RELEASE_TAG="${{ steps.tag.outputs.tag }}"
+          echo "Uploading assets to release ${RELEASE_TAG}..."
           gh release upload "${RELEASE_TAG}" \
             dist/assets/* \
             --clobber

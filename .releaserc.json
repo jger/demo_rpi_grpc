@@ -35,7 +35,8 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "sed -i.bak -E 's/^version = \".*\"/version = \"${nextRelease.version}\"/' Cargo.toml && rm -f Cargo.toml.bak"
+        "prepareCmd": "sed -i.bak -E 's/^version = \".*\"/version = \"${nextRelease.version}\"/' Cargo.toml && rm -f Cargo.toml.bak && cargo check --all-targets",
+        "successCmd": "echo \"new_release_published=true\" >> $GITHUB_OUTPUT && echo \"new_release_version=${nextRelease.version}\" >> $GITHUB_OUTPUT && echo \"new_release_git_tag=${nextRelease.gitTag}\" >> $GITHUB_OUTPUT || true"
       }
     ],
     [
