@@ -39,11 +39,12 @@ A minimal, robust end-to-end hardware-to-cloud/client demonstration: a **Raspber
 
 ## Documentation Map
 
-1. [[01 Hardware & Wiring]] — Raspberry Pi 3 pinout, pull-up resistor circuits (internal vs. external 10kΩ), debounce capacitor/software filter.
+1. [[01 Hardware & Wiring]] — Raspberry Pi 3 pinout, 10kΩ pull-up resistor & 100nF capacitor circuits, physical wiring table.
 2. [[02 gRPC Contract & Protobuf]] — `telemetry.proto` definition with `StreamEvents` and `StreamLogs` RPCs.
 3. [[03 Pi Node Service (Rust)]] — Server daemon implementation: GPIO handling, event channels, and gRPC broadcast.
 4. [[04 Debug Receiver Client (Rust)]] — Debug client implementation: streaming receiver and diagnostic logger.
 5. [[05 Build & Deploy Guide]] — How to build locally (with mock mode), cross-compile for Raspberry Pi 3, and run.
+6. [[06 Hardware Debouncing & Capacitors]] — Electrical engineering principles, RC time constant ($\tau=1\text{ms}$), frequency response, and why 100nF capacitors are used.
 
 ---
 
@@ -54,7 +55,7 @@ A minimal, robust end-to-end hardware-to-cloud/client demonstration: a **Raspber
 | **Target SBC** | Raspberry Pi 3 Model B / B+ (Broadcom BCM2837) |
 | **Inputs** | 2x Momentary Push Buttons (Normally Open) |
 | **GPIO Pins** | GPIO 23 (Pin 16) & GPIO 24 (Pin 18) |
-| **Pull-Up Config** | 10kΩ pull-up to 3.3V (or internal BCM pull-ups enabled) |
+| **Pull-Up & Filter** | 10kΩ pull-up to 3.3V + 100nF ceramic capacitor to GND ($\tau = 1.0\text{ ms}$) |
 | **Protocol** | gRPC (HTTP/2 with Protocol Buffers v3) |
 | **Language** | Rust 2021 edition (`tonic`, `prost`, `tokio`, `rppal`) |
 | **Default Port** | `50051` |

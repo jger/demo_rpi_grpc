@@ -53,7 +53,24 @@ A minimal, robust hardware-to-client telemetry project: a **Raspberry Pi 3** mon
 ## ⚡ Hardware Circuit & Wiring
 
 ### 1. Circuit Schematic
-The switches are wired in an **Active-LOW** configuration with pull-up resistors (either software internal BCM pull-ups or external $10\text{ k}\Omega$ resistors):
+The switches are wired in an **Active-LOW** configuration with **10kΩ pull-up resistors** and **100nF (0.1µF) hardware debounce capacitors** forming an analog RC low-pass filter ($\tau = 1.0\text{ ms}$):
+
+```text
+                  +3.3V (RPi Pin 1)
+                     |
+                    [R]  10kΩ Pull-Up Resistor
+                     |
+  RPi GPIO Pin ------+---------------------+
+  (GPIO 23 / 24)     |                     |
+                     |                    ===  C (100nF / 0.1µF Ceramic)
+                     o                     |
+                   [SW] Push Button (NO)   |
+                     o                     |
+                     |                     |
+                     +---------------------+
+                     |
+                  GND (RPi Pin 14 / 20)
+```
 
 ![Circuit Schematic](assets/circuit_diagram.svg)
 
@@ -63,14 +80,14 @@ The switches are wired in an **Active-LOW** configuration with pull-up resistors
 
 ### 3. Pin Connection Table
 
-| Component | Switch Terminal | Raspberry Pi 3 Pin | Header Pin # | Logic / Note |
-|---|---|---|---|---|
-| **Switch 1 (SW1)** | Terminal A | **GPIO 23** | Pin 16 | Active LOW (Closed = 0V, Open = 3.3V) |
-| **Switch 1 (SW1)** | Terminal B | **GND** | Pin 14 | Ground return |
-| *(Optional Ext R1)* | Across VCC & Pin 16 | **3.3V & GPIO 23** | Pin 1 & 16 | 10kΩ Pull-up resistor |
-| **Switch 2 (SW2)** | Terminal A | **GPIO 24** | Pin 18 | Active LOW (Closed = 0V, Open = 3.3V) |
-| **Switch 2 (SW2)** | Terminal B | **GND** | Pin 20 | Ground return |
-| *(Optional Ext R2)* | Across VCC & Pin 18 | **3.3V & GPIO 24** | Pin 1 & 18 | 10kΩ Pull-up resistor |
+| Component | Designator | From / Terminal | Raspberry Pi 3 Pin | Header Pin # | Logic / Function |
+|---|---|---|---|---|---|
+| **Switch 1 (SW1)** | SW1 | Terminals A & B | **GPIO 23 & GND** | Pin 16 & Pin 14 | Active LOW (Closed = 0V, Open = 3.3V) |
+| **Pull-Up Resistor 1** | R1 (10kΩ) | Between 3.3V & Pin 16 | **3.3V & GPIO 23** | Pin 1 & Pin 16 | 10kΩ Pull-up to 3.3V |
+| **Debounce Cap 1** | C1 (100nF) | Across Pin 16 & GND | **GPIO 23 & GND** | Pin 16 & Pin 14 | 100nF Low-Pass Filter ($\tau=1\text{ms}$) |
+| **Switch 2 (SW2)** | SW2 | Terminals A & B | **GPIO 24 & GND** | Pin 18 & Pin 20 | Active LOW (Closed = 0V, Open = 3.3V) |
+| **Pull-Up Resistor 2** | R2 (10kΩ) | Between 3.3V & Pin 18 | **3.3V & GPIO 24** | Pin 1 & Pin 18 | 10kΩ Pull-up to 3.3V |
+| **Debounce Cap 2** | C2 (100nF) | Across Pin 18 & GND | **GPIO 24 & GND** | Pin 18 & Pin 20 | 100nF Low-Pass Filter ($\tau=1\text{ms}$) |
 
 ---
 
@@ -285,3 +302,4 @@ This repository doubles as an **Obsidian Vault**. You can open the `minimum-hw-p
 - `[[03 Pi Node Service (Rust)]]` — Server concurrency and async channels.
 - `[[04 Debug Receiver Client (Rust)]]` — Client event parsing.
 - `[[05 Build & Deploy Guide]]` — Cross-compilation workflows.
+- `[[06 Hardware Debouncing & Capacitors]]` — Electrical theory, RC time constant, and bounce filtering.
