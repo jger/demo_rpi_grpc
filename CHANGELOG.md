@@ -1,3 +1,11 @@
+## [1.0.7](https://github.com/jger/demo_rpi_grpc/compare/v1.0.6...v1.0.7) (2026-08-21)
+
+
+### Bug Fixes
+
+* improve GPIO interrupt polling reliability and enhance independent switch simulation logic ([2cd72d7](https://github.com/jger/demo_rpi_grpc/commit/2cd72d7e6998f1ab15cf16e125edd98dfb259587))
+* resolve rppal poll_interrupt Event type conversion in pi_node ([d45505e](https://github.com/jger/demo_rpi_grpc/commit/d45505e21a583ba70f3e579404a0fb669b4700f6))
+
 ## [1.0.6](https://github.com/jger/demo_rpi_grpc/compare/v1.0.5...v1.0.6) (2026-08-21)
 
 
