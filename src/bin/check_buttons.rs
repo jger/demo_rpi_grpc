@@ -29,13 +29,13 @@ mod pi {
 
     use chrono::Local;
     use colored::Colorize;
-    use rppal::gpio::{Gpio, InputPin, Level, Trigger};
+    use rppal::gpio::{Event, Gpio, InputPin, Trigger};
 
     /// GPIO 23 (physical header pin 16)
     const PIN_SW1: u8 = 23;
     /// GPIO 24 (physical header pin 18)
     const PIN_SW2: u8 = 24;
-    /// Ignore contact bounce for this long after each detected edge
+    /// Kernel-level debounce applied to each line, same as gpiozero's `bounce_time=0.02`
     const DEBOUNCE: Duration = Duration::from_millis(20);
 
     // -------------------------------------------------------------------------
@@ -61,19 +61,24 @@ mod pi {
         let start = Instant::now();
 
         // No fallback: if the hardware is not there, say so and stop.
-        if let Err(e) = spawn_gpio_monitors(stats.clone()) {
-            eprintln!(
-                "{}",
-                format!("Cannot access Raspberry Pi GPIO: {}", e).bright_red()
-            );
-            eprintln!(
-                "{}",
-                "Check that this is a Raspberry Pi and that /dev/gpiochip0 is accessible \
-                 (run as root, or add the user to the 'gpio' group)."
-                    .dimmed()
-            );
-            std::process::exit(1);
-        }
+        // The pins are held for the whole session — dropping an `InputPin`
+        // clears its interrupt and the button would go silent.
+        let _pins = match setup_switches(stats.clone()) {
+            Ok(pins) => pins,
+            Err(e) => {
+                eprintln!(
+                    "{}",
+                    format!("Cannot access Raspberry Pi GPIO: {}", e).bright_red()
+                );
+                eprintln!(
+                    "{}",
+                    "Check that this is a Raspberry Pi and that /dev/gpiochip0 is accessible \
+                     (run as root, or add the user to the 'gpio' group)."
+                        .dimmed()
+                );
+                std::process::exit(1);
+            }
+        };
 
         // Block until Ctrl+C, then report the session totals.
         let _ = tokio::signal::ctrl_c().await;
@@ -85,69 +90,56 @@ mod pi {
     // GPIO monitoring
     // -------------------------------------------------------------------------
 
-    /// Configures both pins as pull-up inputs and spawns one blocking monitor thread each.
-    fn spawn_gpio_monitors(stats: Arc<Stats>) -> Result<(), rppal::gpio::Error> {
+    /// Configures both pins as pull-up inputs with an independent interrupt handler each.
+    fn setup_switches(stats: Arc<Stats>) -> Result<(InputPin, InputPin), rppal::gpio::Error> {
         println!(
             "{}",
             "Initializing GPIO with rppal (pull-up, 20 ms debounce)...".bright_cyan()
         );
-        let gpio = Gpio::new()?;
-        let pin1 = gpio.get(PIN_SW1)?.into_input_pullup();
-        let pin2 = gpio.get(PIN_SW2)?.into_input_pullup();
 
-        let stats1 = stats.clone();
-        tokio::task::spawn_blocking(move || monitor_switch(pin1, 1, PIN_SW1, stats1));
-        tokio::task::spawn_blocking(move || monitor_switch(pin2, 2, PIN_SW2, stats));
+        let gpio = Gpio::new()?;
+        let pin1 = watch_switch(gpio.get(PIN_SW1)?.into_input_pullup(), 1, stats.clone())?;
+        let pin2 = watch_switch(gpio.get(PIN_SW2)?.into_input_pullup(), 2, stats)?;
 
         println!(
             "{}\n",
             "✓ Ready! Press the physical buttons on the breadboard.".bright_green()
         );
-        Ok(())
+        Ok((pin1, pin2))
     }
 
-    /// Blocks on hardware edge interrupts (≈0% CPU) and prints every press/release.
+    /// Attaches an asynchronous both-edge interrupt to one switch.
     ///
-    /// Wiring is Active-LOW: the internal pull-up holds the pin HIGH while the switch
-    /// is open, and pressing it closes the contact to ground, pulling the pin LOW.
-    fn monitor_switch(mut pin: InputPin, sw_id: u8, pin_number: u8, stats: Arc<Stats>) {
-        let is_pressed = |pin: &InputPin| pin.read() == Level::Low;
+    /// `set_async_interrupt` gives this pin its own dedicated poll thread inside rppal,
+    /// so the two switches never wait on each other. (Do *not* use `poll_interrupt` here:
+    /// it serializes every pin in the process behind one global lock.)
+    ///
+    /// Wiring is Active-LOW: the internal pull-up holds the line HIGH while the switch
+    /// is open, and pressing it closes the contact to ground, pulling the line LOW.
+    /// So a falling edge is a press and a rising edge is a release.
+    fn watch_switch(
+        mut pin: InputPin,
+        sw_id: u8,
+        stats: Arc<Stats>,
+    ) -> Result<InputPin, rppal::gpio::Error> {
+        let pin_number = pin.pin();
+        let mut press_start: Option<Instant> = None;
 
-        if let Err(e) = pin.set_interrupt(Trigger::Both, Some(DEBOUNCE)) {
-            eprintln!(
-                "{}",
-                format!("GPIO {} interrupt error: {}", pin_number, e).bright_red()
-            );
-            return;
-        }
-
-        let mut pressed = is_pressed(&pin);
-        let mut press_start = pressed.then(Instant::now);
-
-        loop {
-            // Wake up on the next voltage change; the timeout keeps the loop responsive
-            // to state changes that were missed while an edge was being debounced.
-            if pin
-                .poll_interrupt(true, Some(Duration::from_millis(250)))
-                .is_err()
-            {
-                return;
+        pin.set_async_interrupt(Trigger::Both, Some(DEBOUNCE), move |event: Event| {
+            match event.trigger {
+                Trigger::FallingEdge => {
+                    press_start = Some(Instant::now());
+                    stats.on_press(sw_id, pin_number);
+                }
+                Trigger::RisingEdge => {
+                    let held = press_start.take().map_or(Duration::ZERO, |t| t.elapsed());
+                    stats.on_release(sw_id, pin_number, held);
+                }
+                _ => {}
             }
+        })?;
 
-            let now_pressed = is_pressed(&pin);
-            if now_pressed == pressed {
-                continue;
-            }
-            pressed = now_pressed;
-
-            if pressed {
-                press_start = Some(Instant::now());
-                stats.on_press(sw_id, pin_number);
-            } else {
-                let held = press_start.take().map_or(Duration::ZERO, |t| t.elapsed());
-                stats.on_release(sw_id, pin_number, held);
-            }
-        }
+        Ok(pin)
     }
 
     // -------------------------------------------------------------------------
