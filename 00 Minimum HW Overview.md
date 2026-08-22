@@ -5,7 +5,7 @@ status: active
 
 # Minimum Hardware Project (RPi 3 + gRPC + Rust)
 
-A minimal, robust end-to-end hardware-to-cloud/client demonstration: a **Raspberry Pi 3** connected to **2 push switches** (with pull-up resistors), publishing real-time button events and diagnostic logs over **gRPC** to a **Rust debug receiver / client**.
+A minimal, robust end-to-end hardware-to-cloud/client demonstration: a **Raspberry Pi 3** connected to **2 push switches** (with pull-up resistors), publishing real-time button events and diagnostic logs over **gRPC** to a **Rust debug receiver / client** and a companion **[Flutter Mobile Client (`demo_flutter_grpc`)](https://github.com/jger/demo_flutter_grpc)**.
 
 > [!tip] Goal & Purpose
 > Demonstrate bare-metal hardware interfacing on an embedded Linux device (RPi 3), reliable signal conditioning (pull-ups & debounce), and modern type-safe async streaming using **Rust** (`tonic` + `tokio`) over **gRPC/Protobuf**.

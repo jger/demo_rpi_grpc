@@ -1,11 +1,12 @@
 # 🔌 Raspberry Pi 3 Hardware Telemetry with Rust & gRPC
 
 [![Rust](https://img.shields.io/badge/Rust-2021_Edition-orange.svg?logo=rust)](https://www.rust-lang.org/)
+[![Flutter Client](https://img.shields.io/badge/Flutter-Client_App-02569B.svg?logo=flutter)](https://github.com/jger/demo_flutter_grpc)
 [![gRPC](https://img.shields.io/badge/gRPC-v1.60_Tonic-blue.svg?logo=grpc)](https://github.com/hyperium/tonic)
 [![Platform](https://img.shields.io/badge/Platform-Raspberry_Pi_3-red.svg?logo=raspberrypi)](https://www.raspberrypi.com/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-A minimal, robust hardware-to-client telemetry project: a **Raspberry Pi 3** monitors **2 input push switches** (with pull-up resistors & software debounce) and streams real-time switch transitions and diagnostic logs over **gRPC** to a **Rust debug receiver / client**.
+A minimal, robust hardware-to-client telemetry project: a **Raspberry Pi 3** monitors **2 input push switches** (with pull-up resistors & software debounce) and streams real-time switch transitions and diagnostic logs over **gRPC** to a **Rust debug receiver / client** and a companion **[Flutter Mobile App (`demo_flutter_grpc`)](https://github.com/jger/demo_flutter_grpc)**.
 
 ---
 
@@ -14,10 +15,12 @@ A minimal, robust hardware-to-client telemetry project: a **Raspberry Pi 3** mon
 1. [System Architecture](#-system-architecture)
 2. [Hardware Circuit & Wiring](#-hardware-circuit--wiring)
 3. [gRPC API Contract](#-grpc-api-contract)
-4. [Project Structure](#-project-structure)
-5. [Quickstart: Local Testing (Simulation Mode)](#-quickstart-local-testing-simulation-mode)
-6. [Deploying to Raspberry Pi 3](#-deploying-to-raspberry-pi-3)
-7. [Obsidian Vault Notes](#-obsidian-vault-notes)
+4. [Quick Hardware Verification with Python](#-quick-hardware-verification-with-python)
+5. [Project Structure](#-project-structure)
+6. [Quickstart: Local Receiver & Deployment](#-quickstart-local-receiver--deployment)
+7. [Live Telemetry Mobile Dashboard](#-live-telemetry-mobile-dashboard)
+8. [Deploying to Raspberry Pi 3](#-deploying-to-raspberry-pi-3)
+9. [Obsidian Vault Notes](#-obsidian-vault-notes)
 
 ---
 
@@ -38,14 +41,16 @@ A minimal, robust hardware-to-client telemetry project: a **Raspberry Pi 3** mon
                                  |
                      gRPC Stream (HTTP/2 / Protobuf)
                                  |
-                                 v
-  +-------------------------------------------------------------+
-  |               log_receiver (Debug Client)                   |
-  |                                                             |
-  |    • Subscribes to StreamEvents (switch press / release)    |
-  |    • Subscribes to StreamLogs (structured debug & health)   |
-  |    • Real-time colored terminal display with durations      |
-  +-------------------------------------------------------------+
+            +--------------------+--------------------+
+            |                                         |
+            v                                         v
+  +-----------------------------+   +-----------------------------+
+  |  log_receiver (Rust CLI)    |   | Flutter App (Mobile / Web)  |
+  |                             |   | github.com/jger/            |
+  |  • Real-time colored logs   |   |   demo_flutter_grpc         |
+  |  • Transition diagnostics   |   | • Live status cards         |
+  |  • Durations & health check |   | • Instant press / hold view |
+  +-----------------------------+   +-----------------------------+
 ```
 
 ---
@@ -88,6 +93,12 @@ The switches are wired in an **Active-LOW** configuration with **10kΩ pull-up r
 | **Switch 2 (SW2)** | SW2 | Terminals A & B | **GPIO 24 & GND** | Pin 18 & Pin 20 | Active LOW (Closed = 0V, Open = 3.3V) |
 | **Pull-Up Resistor 2** | R2 (10kΩ) | Between 3.3V & Pin 18 | **3.3V & GPIO 24** | Pin 1 & Pin 18 | 10kΩ Pull-up to 3.3V |
 | **Debounce Cap 2** | C2 (100nF) | Across Pin 18 & GND | **GPIO 24 & GND** | Pin 18 & Pin 20 | 100nF Low-Pass Filter ($\tau=1\text{ms}$) |
+
+### 4. Physical Hardware Setup
+
+![Raspberry Pi 3 Hardware Setup with Dual-Switch Key Board](assets/hardware_setup.jpg)
+
+*Physical testbed: Raspberry Pi 3 Model B connected via GPIO 23 & GPIO 24 header lines to the dual-switch input module (`SPARROW KEY BOARD V2.2`) and camera ribbon cable.*
 
 ---
 
@@ -170,7 +181,10 @@ minimum-hw-project/
 ├── build.rs                           # Protoc codegen script (bundled protobuf-src)
 ├── assets/
 │   ├── circuit_diagram.svg            # Vector schematic diagram
-│   └── pinout_diagram.svg             # Vector pinout diagram
+│   ├── pinout_diagram.svg             # Vector pinout diagram
+│   ├── hardware_setup.jpg             # Physical Raspberry Pi & button setup photo
+│   ├── mobile_app_dashboard.jpg       # Live Flutter mobile client UI screenshot
+│   └── terminal_logs.jpg              # Live monitor logs & event telemetry stream
 ├── proto/
 │   └── telemetry.proto                # Protobuf contract definition
 └── src/
@@ -213,6 +227,12 @@ On your computer (macOS / Linux):
 cargo run --bin log_receiver -- --server-url http://<PI_IP>:50051
 ```
 
+### 2. Live Console Logs on Raspberry Pi
+
+When running `pi_node` directly on the Raspberry Pi with a connected display or serial console, real-time switch transitions, debounce timings, and system heartbeats are rendered live:
+
+![Live Terminal Telemetry Logs](assets/terminal_logs.jpg)
+
 ### 3. Example Terminal Output
 ```text
 =========================================================
@@ -233,6 +253,19 @@ Connecting to gRPC server...
 2026-08-20 08:01:26.627 [DEBUG] [sim]        Simulating Switch2 release
 2026-08-20 08:01:27.921 [INFO ] [health]     System heartbeat: Uptime=10s | Press Counts: SW1=1 SW2=1
 ```
+
+---
+
+## 📱 Live Telemetry Mobile Dashboard
+
+In addition to CLI log streaming, the gRPC service streams real-time state transitions directly to companion mobile and desktop telemetry clients. The Flutter client repository is available at **[jger/demo_flutter_grpc](https://github.com/jger/demo_flutter_grpc)**:
+
+![Mobile Telemetry App Dashboard](assets/mobile_app_dashboard.jpg)
+
+* **Source Code**: [https://github.com/jger/demo_flutter_grpc](https://github.com/jger/demo_flutter_grpc)
+* **Real-Time Switch States**: Instant visual status cards for **Switch 1** (`GPIO 23`) and **Switch 2** (`GPIO 24`) indicating `PRESSED` / `RELEASED` with active-LOW logic.
+* **Telemetry Metrics**: Continuous counter for total switch presses and active duration tracking in milliseconds (`ms`).
+* **Chronological Event Stream**: Real-time log feed displaying event sequence IDs, exact timestamp down to the millisecond (`hh:mm:ss.mmm`), contact state changes, and button hold durations.
 
 ---
 

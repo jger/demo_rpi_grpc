@@ -1,3 +1,6 @@
+// #![allow(clippy::all)]
+// #![allow(unused, dead_code)]
+
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
